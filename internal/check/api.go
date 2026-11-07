@@ -105,7 +105,8 @@ var (
 )
 
 // Refs checks that the identifiers the documents name exist (DS-REF):
-// pkg.Name and Type.Member in inline code, and every ErrX word.
+// pkg.Name and Type.Member in inline code, ErrX in inline code and Go
+// blocks, and pkg.ErrX of a module package in prose.
 func Refs(r *Repo) []finding.Finding {
 	if !r.Config.HasAPI() || r.Module == nil {
 		return nil
@@ -129,6 +130,9 @@ func Refs(r *Repo) []finding.Finding {
 				}
 				pkg, name := s.Text[m[2]:m[3]], s.Text[m[4]:m[5]]
 				pkgs := ix.PkgNames[pkg]
+				if ix.IsTest(pkg, name) {
+					continue // a test, fuzz target, benchmark or example of a _test.go file
+				}
 				if len(pkgs) == 0 || placeholderName(name) || goapi.Has(pkgs, name) || ix.Members[name] {
 					continue
 				}
@@ -149,26 +153,73 @@ func Refs(r *Repo) []finding.Finding {
 				add(d, s.Line, typ+"."+mem, fmt.Sprintf("%s.%s: type %s has no method or field %s", typ, mem, typ, mem))
 			}
 		}
-		for i, l := range d.Lines {
+		// ErrX names: in inline code and Go blocks, and in prose when a
+		// module package qualifies them (lib.ErrX). An unqualified ErrX in
+		// prose or a table is as often a protocol name (IEC 61850 ErrTerm).
+		errs := func(line int, l string, prose bool) {
 			for _, m := range errWordRE.FindAllStringIndex(l, -1) {
 				name := l[m[0]:m[1]]
 				if placeholderName(name) {
 					continue
 				}
+				q := ""
 				if m[0] > 0 && l[m[0]-1] == '.' {
-					q := qualifier(l[:m[0]-1])
+					q = qualifier(l[:m[0]-1])
 					if q == "" || len(ix.PkgNames[q]) == 0 {
 						continue // another module's error: io.ErrX, mms.ErrX
 					}
 				}
-				if ix.Members[name] {
+				if prose && q == "" || ix.Members[name] {
 					continue
 				}
-				add(d, i+1, name, name+" is not declared in the module")
+				add(d, line, name, name+" is not declared in the module")
+			}
+		}
+		for _, s := range d.Spans() {
+			errs(s.Line, s.Text, false)
+		}
+		for _, b := range d.Blocks {
+			if b.Lang == "go" {
+				for j, l := range b.Lines {
+					errs(b.Start+j, l, false)
+				}
+			}
+		}
+		for i, l := range d.Lines {
+			if !d.InBlock(i + 1) {
+				errs(i+1, stripSpans(l), true)
 			}
 		}
 	}
 	return out
+}
+
+// stripSpans blanks the inline code spans of a line (checked on their own).
+func stripSpans(l string) string {
+	if !strings.Contains(l, "`") {
+		return l
+	}
+	b := []byte(l)
+	for i := 0; i < len(b); {
+		if b[i] != '`' {
+			i++
+			continue
+		}
+		n := 0
+		for i+n < len(b) && b[i+n] == '`' {
+			n++
+		}
+		end := strings.Index(l[i+n:], strings.Repeat("`", n))
+		if end < 0 {
+			i += n
+			continue
+		}
+		for k := i; k < i+n+end+n; k++ {
+			b[k] = ' '
+		}
+		i += n + end + n
+	}
+	return string(b)
 }
 
 func qualifier(before string) string {

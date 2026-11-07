@@ -1,5 +1,30 @@
 # docsync Releases
 
+## v0.3.0
+
+**Date:** 2026-11-07
+**Previous release:** v0.2.0
+
+### Added
+
+- DS-SEC reports a `SECURITY.md` without a supported-versions table.
+- DS-EXIT knows exit code 13 (safety: a state-changing operation on a live, non-virtual target without the confirmation it requires); 9 is permission only.
+
+### Changed
+
+- DS-REF checks `ErrX` in inline code and `go` blocks, and `pkg.ErrX` of a module package in prose; an unqualified ErrX in prose or a table (IEC 61850 ErrTerm, ErrPar) is no longer reported.
+- DS-REF accepts the test functions of `_test.go` files (`Test…`, `Fuzz…`, `Benchmark…`, `Example…`, including a package-level `Example`), qualified (`devicefile.FuzzParse`) or not.
+- `HANDOFF-*.md` (design hand-off notes) are excluded by default.
+- DS-SEC accepts a supported-versions cell that starts with the version and adds a note (`0.8.x (latest: v0.8.2)`).
+
+### Fixed
+
+- DS-CODE: a package name several module packages share resolves to the one declaring the selected names, and to a public package before an `internal/` one, instead of the shortest import path.
+- DS-FLAG: a root flag's command is named without a trailing space.
+- The library fixture no longer depends on docsync's own release tags.
+
+---
+
 ## v0.2.0
 
 **Date:** 2026-11-07

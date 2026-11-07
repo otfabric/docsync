@@ -7,5 +7,7 @@ const (
 	ExitInvalidInput = 3
 	ExitTransport    = 4
 	ExitBroken       = 6
+	ExitPermission   = 9
 	ExitInternal     = 10
+	ExitSafety       = 13
 )

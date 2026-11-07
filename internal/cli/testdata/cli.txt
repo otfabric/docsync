@@ -1,9 +1,11 @@
+README.md: DS-FLAG: flag --debug of `democtl` is not documented (README.md, docs/exitcodes.md, docs/json-output.md)
 README.md:8: DS-EX: required flag --url of `democtl read` is not set: democtl read --count 2
 README.md:9: DS-EX: unknown flag --nope for `democtl read`: democtl read --nope
 README.md:10: DS-EX: unknown command "frobnicate" for `democtl`: democtl frobnicate
+SECURITY.md:1: DS-SEC: SECURITY.md has no supported-versions table (| Version | Supported |)
 docs/exitcodes.md:8: DS-EXIT: exit code 4 is documented as "Bad weather"; the organisation table makes it "transport"
 docs/exitcodes.md:9: DS-EXIT: exit code 6 is documented as "Broken peer"; the organisation table makes it "protocol"
 docs/exitcodes.md:10: DS-EXIT: exit code 7 is documented but no Exit… constant in internal/errs has it
+docs/exitcodes.md:11: DS-EXIT: exit code 9 is documented as "Safety interlock"; the organisation table makes it "permission"
 internal/errs/errs.go:9: DS-EXIT: exit code 6 is "broken" in the code; the organisation table makes 6 "protocol"
-internal/errs/errs.go:10: DS-EXIT: exit code 10 (internal) is not in docs/exitcodes.md
-docsync: 8 finding(s)
+docsync: 10 finding(s)

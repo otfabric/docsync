@@ -11,6 +11,7 @@ import (
 
 	"github.com/otfabric/docsync/internal/finding"
 	"github.com/otfabric/docsync/internal/gitinfo"
+	"github.com/otfabric/docsync/internal/markdown"
 )
 
 var (
@@ -98,10 +99,17 @@ func normGo(v string) string {
 
 var (
 	emailRE     = regexp.MustCompile(`[A-Za-z0-9._%+-]+@otfabric\.[a-z]+`)
-	supportedRE = regexp.MustCompile(`(?i)^(?:v)?(\d+)\.(\d+)\.x$`)
+	supportedRE = regexp.MustCompile(`(?i)^v?(\d+)\.(\d+)\.x(?:$|[\s(,;:])`)
 	latestRE    = regexp.MustCompile(`(?i)^(?:the )?(?:latest|current|newest|most recent)(?: (?:release|version|minor))?$`)
 	yesRE       = regexp.MustCompile(`^(?:(?i:yes|supported)\b|✓|✅|✔|:white_check_mark:)`)
 )
+
+var versionHeadRE = regexp.MustCompile(`(?i)^versions?$`)
+
+// cellText is a table cell without emphasis and code marks.
+func cellText(c string) string {
+	return strings.TrimSpace(strings.NewReplacer("`", "", "*", "", "_", "").Replace(c))
+}
 
 // SecurityAddress is the only address for private security reports.
 const SecurityAddress = "security@otfabric.io"
@@ -129,30 +137,36 @@ func Security(r *Repo) []finding.Finding {
 		out = append(out, finding.Finding{Rule: "DS-SEC", File: d.Path, Line: 1, Subject: "contact",
 			Message: "SECURITY.md does not name " + SecurityAddress})
 	}
+	var tables [][]markdown.Row
+	for _, t := range d.Tables() {
+		if len(t[0].Cells) >= 2 && versionHeadRE.MatchString(cellText(t[0].Cells[0])) {
+			tables = append(tables, t)
+		}
+	}
+	if len(tables) == 0 {
+		return append(out, finding.Finding{Rule: "DS-SEC", File: d.Path, Line: 1, Subject: "supported versions",
+			Message: "SECURITY.md has no supported-versions table (| Version | Supported |)"})
+	}
 	latest, ok := r.Git.Latest()
 	if !ok {
 		return out
 	}
 	want := fmt.Sprintf("%d.%d.x", latest.Major, latest.Minor)
-	found, table := false, 0
-	for _, t := range d.Tables() {
-		if len(t[0].Cells) < 2 || !strings.EqualFold(strings.TrimSpace(t[0].Cells[0]), "version") {
-			continue
-		}
-		table = t[0].Line
+	found := false
+	for _, t := range tables {
 		for _, row := range t[1:] {
 			if len(row.Cells) < 2 {
 				continue
 			}
-			ver := strings.Trim(row.Cells[0], "` *")
+			ver := cellText(row.Cells[0]) // "0.8.x", "0.8.x (latest: v0.8.2)"
 			m := supportedRE.FindStringSubmatch(ver)
 			if (m != nil && m[1]+"."+m[2]+".x" == want || latestRE.MatchString(ver)) && yesRE.MatchString(strings.TrimSpace(row.Cells[1])) {
 				found = true // "Latest release | Yes" names the latest minor, whatever it is
 			}
 		}
 	}
-	if table > 0 && !found {
-		out = append(out, finding.Finding{Rule: "DS-SEC", File: d.Path, Line: table, Subject: "supported " + want,
+	if !found {
+		out = append(out, finding.Finding{Rule: "DS-SEC", File: d.Path, Line: tables[0][0].Line, Subject: "supported " + want,
 			Message: fmt.Sprintf("the supported-versions table does not support %s (latest release %s)", want, latest)})
 	}
 	return out

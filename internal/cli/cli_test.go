@@ -184,6 +184,17 @@ func TestGitChecks(t *testing.T) {
 	if code, out, _ := run(t, "check", dir); code != ExitOK {
 		t.Errorf("after the fix: exit %d\n%s", code, out)
 	}
+	// A version cell may carry a note after the version.
+	for _, cell := range []string{"0.3.x (latest: v0.3.0)", "`0.3.x` (latest release, v0.3.0)"} {
+		writeFile(t, dir, "SECURITY.md", "Report to security@otfabric.io.\n\n| Version | Supported |\n|---|---|\n| "+cell+" | Yes |\n")
+		if code, out, _ := run(t, "check", dir); code != ExitOK {
+			t.Errorf("%s: exit %d\n%s", cell, code, out)
+		}
+	}
+	writeFile(t, dir, "SECURITY.md", "Report to security@otfabric.io.\n\n| Version | Supported |\n|---|---|\n| 0.3.xy | Yes |\n")
+	if _, out, _ := run(t, "check", dir); !strings.Contains(out, "does not support 0.3.x") {
+		t.Errorf("0.3.xy is not 0.3.x:\n%s", out)
+	}
 	// A "Latest release" row supports whichever minor is the latest.
 	writeFile(t, dir, "SECURITY.md", "Report to security@otfabric.io.\n\n| Version | Supported |\n|---|---|\n| Latest release | Yes |\n| Older releases | No |\n")
 	if code, out, _ := run(t, "check", dir); code != ExitOK {

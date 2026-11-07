@@ -177,7 +177,7 @@ func commandsAndFlags(c config.CLI, m *Manifest, docs []*markdown.Doc) []finding
 			if !regexp.MustCompile(`--` + regexp.QuoteMeta(f.Name) + `\b`).MatchString(all) {
 				subject := "--" + f.Name
 				out = append(out, finding.Finding{Rule: "DS-FLAG", File: where, Subject: subject,
-					Message: fmt.Sprintf("flag --%s of `%s %s` is not documented (%s)", f.Name, c.Name, strings.TrimSpace(cmd.Path), docNames(docs))})
+					Message: fmt.Sprintf("flag --%s of `%s` is not documented (%s)", f.Name, strings.TrimSpace(c.Name+" "+cmd.Path), docNames(docs))})
 			}
 		}
 	}
@@ -522,7 +522,7 @@ func placeholder(a string) bool {
 
 // orgExit is the organisation exit-code table (standards/api-design.md).
 var orgExit = map[int]string{0: "ok", 1: "findings", 2: "usage", 3: "invalid_input", 4: "transport", 5: "timeout",
-	6: "protocol", 7: "partial", 8: "unsupported", 9: "permission", 10: "internal"}
+	6: "protocol", 7: "partial", 8: "unsupported", 9: "permission", 10: "internal", 13: "safety"}
 
 // orgWords are the words a code's meaning must contain in the table.
 var orgWords = map[string][]string{
@@ -535,6 +535,7 @@ var orgWords = map[string][]string{
 	"unsupported":   {"unsupported", "not supported", "not implemented"},
 	"permission":    {"permission", "denied", "forbidden", "unauthori", "not authori"},
 	"internal":      {"internal", "unclassified", "unexpected"},
+	"safety":        {"safety", "interlock", "live", "not virtual", "non-virtual", "confirm"},
 }
 
 // kindAliases are constant names that mean an organisation kind
@@ -544,6 +545,7 @@ var kindAliases = map[string]string{
 	"rejected": "protocol", "refused": "protocol", "exception": "protocol", "notsupported": "unsupported",
 	"notimplemented": "unsupported", "denied": "permission", "forbidden": "permission",
 	"failure": "internal", "unexpected": "internal", "invalidinput": "invalid_input", "invalid": "invalid_input",
+	"interlock": "safety", "live": "safety", "livetarget": "safety", "unconfirmed": "safety",
 }
 
 var exitNameRE = regexp.MustCompile(`^[Ee]xit([A-Z0-9][A-Za-z0-9_]*)$`)

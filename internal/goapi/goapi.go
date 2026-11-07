@@ -29,6 +29,10 @@ type Module struct {
 	// Requires maps a required module path to its version.
 	Requires map[string]string
 	Packages []*Package
+	// Tests maps a package name to the test functions (Test…, Fuzz…,
+	// Benchmark…, Example…) its _test.go files declare, external test
+	// packages (name_test) under the package's name.
+	Tests map[string]map[string]bool
 	// Unparsed are the Go files that do not parse (left out).
 	Unparsed []string
 }
@@ -114,9 +118,10 @@ type Value struct {
 }
 
 // Load reads the module in dir. Nested modules, testdata, vendor and hidden
-// directories are left out; _test.go files are not read.
+// directories are left out; of the _test.go files only the test functions
+// are read.
 func Load(dir string) (*Module, error) {
-	m := &Module{Dir: dir, Requires: map[string]string{}}
+	m := &Module{Dir: dir, Requires: map[string]string{}, Tests: map[string]map[string]bool{}}
 	if err := m.readGoMod(); err != nil {
 		return nil, err
 	}
@@ -140,7 +145,11 @@ func Load(dir string) (*Module, error) {
 			}
 			return nil
 		}
-		if !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
+		if !strings.HasSuffix(p, ".go") {
+			return nil
+		}
+		if strings.HasSuffix(p, "_test.go") {
+			m.addTests(fset, p)
 			return nil
 		}
 		f := parseFile(fset, p)
@@ -180,6 +189,25 @@ func Load(dir string) (*Module, error) {
 	}
 	slices.SortFunc(m.Packages, func(a, b *Package) int { return strings.Compare(a.Rel, b.Rel) })
 	return m, nil
+}
+
+var testFuncRE = regexp.MustCompile(`^(?:Test|Fuzz|Benchmark|Example)(?:$|[^a-z])`)
+
+// addTests records the test functions of a _test.go file.
+func (m *Module) addTests(fset *token.FileSet, p string) {
+	f, err := parser.ParseFile(fset, p, nil, parser.SkipObjectResolution)
+	if err != nil || ignored(f) {
+		return
+	}
+	name := strings.TrimSuffix(f.Name.Name, "_test")
+	for _, d := range f.Decls {
+		if fd, ok := d.(*ast.FuncDecl); ok && fd.Recv == nil && testFuncRE.MatchString(fd.Name.Name) {
+			if m.Tests[name] == nil {
+				m.Tests[name] = map[string]bool{}
+			}
+			m.Tests[name][fd.Name.Name] = true
+		}
+	}
 }
 
 // parseFile parses a Go file, or returns nil when it does not parse.
@@ -449,11 +477,18 @@ type Index struct {
 	Members map[string]bool
 	// Types maps a type name to every type of that name.
 	Types map[string][]*Type
+	// Tests are the test functions of the _test.go files by package name
+	// (Module.Tests).
+	Tests map[string]map[string]bool
 }
+
+// IsTest reports whether a _test.go file of a package named pkg declares
+// the test function name (Test…, Fuzz…, Benchmark…, Example…).
+func (ix *Index) IsTest(pkg, name string) bool { return ix.Tests[pkg][name] }
 
 // NewIndex indexes the module.
 func NewIndex(m *Module) *Index {
-	ix := &Index{PkgNames: map[string][]*Package{}, Members: map[string]bool{}, Types: map[string][]*Type{}}
+	ix := &Index{PkgNames: map[string][]*Package{}, Members: map[string]bool{}, Types: map[string][]*Type{}, Tests: m.Tests}
 	for _, p := range m.Packages {
 		if !p.Main {
 			ix.PkgNames[p.Name] = append(ix.PkgNames[p.Name], p)
