@@ -77,6 +77,19 @@ import "testing"
 func TestExt(t *testing.T) {}
 `,
 		"bad_test.go": "package m\n\nfunc TestBroken( {\n",
+		// A build-ignored test file is not part of the package's tests.
+		"ignored_test.go": `//go:build ignore
+
+package m
+
+import (
+	"testing"
+
+	"github.com/dep/ignoredonly"
+)
+
+func TestIgnored(t *testing.T) { _ = ignoredonly.X }
+`,
 	})
 	m, err := Load(dir)
 	if err != nil {
@@ -165,7 +178,7 @@ type I interface{ IM() }
 			t.Errorf("%s is missing from %v", n, got)
 		}
 	}
-	for _, n := range []string{"unexported", "f", "TestOnly", "X", "Broken"} {
+	for _, n := range []string{"unexported", "f", "TestOnly", "X", "Broken", "Field"} { // no struct fields
 		if got[n] {
 			t.Errorf("%s is in %v", n, got)
 		}

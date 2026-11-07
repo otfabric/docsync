@@ -1,5 +1,18 @@
 # docsync Releases
 
+## v0.3.1
+
+**Date:** unreleased
+**Previous release:** v0.3.0
+
+### Fixed
+
+- DS-SEC accepts a "Latest release" supported-versions row that names the version in parentheses (`Latest release (v1.4.x)`); the version must be the latest minor, as a bare `v1.4.x` must.
+- A build-ignored `_test.go` file (`//go:build ignore`) is skipped like a build-ignored non-test file: its test functions no longer count for DS-REF and its imports are no longer recorded.
+- The `goapi.ExportedNames` doc comment no longer claims struct fields; it returns funcs, values, types and the methods of exported types.
+
+---
+
 ## v0.3.0
 
 **Date:** 2026-11-07
