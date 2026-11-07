@@ -1,6 +1,9 @@
 name: Docs
 run-name: "Docs (${{ github.event_name }}) on ${{ github.ref_name }} by @${{ github.actor }}"
-# No path filter: this is the check that runs when CI skips a Markdown-only change.
+# No path filter: this is the check that runs when CI skips a Markdown-only
+# change. docsync checks itself with its own code at this commit, not with
+# the last release (the shared docs-check.yml pins a release): a rule this
+# commit adds or changes applies to its own documents at once.
 on:
   push:
     branches: [main]
@@ -9,7 +12,15 @@ permissions:
   contents: read
 jobs:
   docs:
-    uses: otfabric/.github/.github/workflows/docs-check.yml@v3.5.0
-    with:
-      run-policy: false # policy.yml runs it
-    secrets: inherit
+    name: Docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: go run . check --format github .
