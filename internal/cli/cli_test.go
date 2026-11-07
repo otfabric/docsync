@@ -208,6 +208,20 @@ func TestGitChecks(t *testing.T) {
 	if _, out, _ := run(t, "check", dir); !strings.Contains(out, "does not support 0.3.x") {
 		t.Errorf("0.3.xy is not 0.3.x:\n%s", out)
 	}
+	// A "Latest release" row may name the version in parentheses; it must
+	// then be the latest minor.
+	for _, cell := range []string{"Latest release (v0.3.x)", "Latest release (0.3.x)", "Latest release(v0.3.x)"} {
+		writeFile(t, dir, "SECURITY.md", "Report to security@otfabric.io.\n\n| Version | Supported |\n|---|---|\n| "+cell+" | Yes |\n")
+		if code, out, _ := run(t, "check", dir); code != ExitOK {
+			t.Errorf("%s: exit %d\n%s", cell, code, out)
+		}
+	}
+	for _, cell := range []string{"Latest release (v0.2.x)", "Latest release (v0.3.xy)", "Latest release (soon)", "Latest release ()"} {
+		writeFile(t, dir, "SECURITY.md", "Report to security@otfabric.io.\n\n| Version | Supported |\n|---|---|\n| "+cell+" | Yes |\n")
+		if _, out, _ := run(t, "check", dir); !strings.Contains(out, "does not support 0.3.x") {
+			t.Errorf("%s does not name 0.3.x:\n%s", cell, out)
+		}
+	}
 	// A "Latest release" row supports whichever minor is the latest.
 	writeFile(t, dir, "SECURITY.md", "Report to security@otfabric.io.\n\n| Version | Supported |\n|---|---|\n| Latest release | Yes |\n| Older releases | No |\n")
 	if code, out, _ := run(t, "check", dir); code != ExitOK {

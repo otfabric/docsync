@@ -110,7 +110,7 @@ func normGo(v string) string {
 var (
 	emailRE     = regexp.MustCompile(`[A-Za-z0-9._%+-]+@otfabric\.[a-z]+`)
 	supportedRE = regexp.MustCompile(`(?i)^v?(\d+)\.(\d+)\.x(?:$|[\s(,;:])`)
-	latestRE    = regexp.MustCompile(`(?i)^(?:the )?(?:latest|current|newest|most recent)(?: (?:release|version|minor))?$`)
+	latestRE    = regexp.MustCompile(`(?i)^(?:the )?(?:latest|current|newest|most recent)(?: (?:release|version|minor))?(?:\s*\(([^()]*)\))?$`)
 	yesRE       = regexp.MustCompile(`^(?:(?i:yes|supported)\b|✓|✅|✔|:white_check_mark:)`)
 )
 
@@ -142,6 +142,24 @@ var versionHeadRE = regexp.MustCompile(`(?i)^versions?$`)
 // cellText is a table cell without emphasis and code marks.
 func cellText(c string) string {
 	return strings.TrimSpace(strings.NewReplacer("`", "", "*", "", "_", "").Replace(c))
+}
+
+// supportsMinor reports whether ver starts with the minor want ("0.8.x").
+func supportsMinor(ver, want string) bool {
+	m := supportedRE.FindStringSubmatch(ver)
+	return m != nil && m[1]+"."+m[2]+".x" == want
+}
+
+// latestRow reports whether ver is a "Latest release" cell: bare, it names
+// the latest minor, whatever it is; with a parenthesised version ("Latest
+// release (v1.4.x)") that version must be the latest minor, as a bare
+// "v1.4.x" must.
+func latestRow(ver, want string) bool {
+	m := latestRE.FindStringSubmatch(ver)
+	if m == nil {
+		return false
+	}
+	return !strings.Contains(ver, "(") || supportsMinor(strings.TrimSpace(m[1]), want)
 }
 
 // SecurityAddress is the only address for private security reports.
@@ -192,9 +210,8 @@ func Security(r *Repo) []finding.Finding {
 				continue
 			}
 			ver := cellText(row.Cells[0]) // "0.8.x", "0.8.x (latest: v0.8.2)"
-			m := supportedRE.FindStringSubmatch(ver)
-			if (m != nil && m[1]+"."+m[2]+".x" == want || latestRE.MatchString(ver) || openEnded(ver, latest)) && yesRE.MatchString(strings.TrimSpace(row.Cells[1])) {
-				found = true // "Latest release | Yes" names the latest minor, whatever it is
+			if (supportsMinor(ver, want) || latestRow(ver, want) || openEnded(ver, latest)) && yesRE.MatchString(strings.TrimSpace(row.Cells[1])) {
+				found = true
 			}
 		}
 	}

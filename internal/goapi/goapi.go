@@ -225,7 +225,7 @@ var testFuncRE = regexp.MustCompile(`^(?:Test|Fuzz|Benchmark|Example)(?:$|[^a-z]
 
 // addTests records the test functions of a _test.go file.
 func (m *Module) addTests(fset *token.FileSet, p string) {
-	f, err := parser.ParseFile(fset, p, nil, parser.SkipObjectResolution)
+	f, err := parser.ParseFile(fset, p, nil, parser.SkipObjectResolution|parser.ParseComments) // ignored reads the comments
 	if err != nil || ignored(f) {
 		return
 	}
@@ -547,9 +547,10 @@ func NewIndex(m *Module) *Index {
 	return ix
 }
 
-// ExportedNames returns the exported top-level names (and the methods and
-// fields of exported types) of the package in dir, a dependency's: its
-// non-test Go files, whatever their build constraints.
+// ExportedNames returns the exported top-level names (funcs, values and
+// types) and the methods of exported types of the package in dir, a
+// dependency's: its non-test Go files, whatever their build constraints.
+// Struct fields are not included.
 func ExportedNames(dir string) map[string]bool {
 	out := map[string]bool{}
 	files, _ := filepath.Glob(filepath.Join(dir, "*.go"))
