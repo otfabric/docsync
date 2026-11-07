@@ -17,10 +17,11 @@ ERRORS.md:5: DS-REF: ErrVanished is not declared in the module
 README.md:3: DS-VER: states Go 1.25; go.mod says go 1.26.0
 README.md:3: DS-VER: states go-dep v1.1.0; go.mod requires v1.2.0
 README.md:4: DS-SEC: security@otfabric.com: OT Fabric addresses are @otfabric.io (security reports: security@otfabric.io)
+README.md:10: DS-VER: states go-dep v1.1.1; go.mod requires v1.2.0
 RELEASE.md:7: DS-REL: v0.3.0 repeats 3 of its 3 bullets from v0.2.0 word for word
 lib.go:13: DS-API: variable lib.ErrMissing is not in the API reference (API.md)
 lib.go:13: DS-ERR: error sentinel lib.ErrMissing is not in ERRORS.md
 lib.go:24: DS-API: constant lib.MaxSize is not in the API reference (API.md)
 lib.go:34: DS-API: type lib.Inner is not in the API reference (API.md)
 lib.go:52: DS-ERR: error type lib.OpError is not in ERRORS.md
-docsync: 25 finding(s)
+docsync: 26 finding(s)

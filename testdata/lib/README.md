@@ -6,3 +6,5 @@ Mail security@otfabric.com for nothing.
 | Issue | Status |
 |---|---|
 | Schema as the draft requires | Fixed in go-dep v1.0.0 |
+
+Built on [otfabric/go-dep](https://github.com/otfabric/go-dep) **v1.1.1**.

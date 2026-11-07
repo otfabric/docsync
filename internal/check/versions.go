@@ -21,7 +21,8 @@ var (
 	depKeyRE  = regexp.MustCompile(`(?i)\b(built on|built with|requires?|needs?|depends on|based on|uses|pinned to)\b|v\d+\.\d+\.\d+\+`)
 	// depNearRE is a requirement keyword right before the module name:
 	// "requires go-x", "built on `go-x`", "depends on the go-x module".
-	depNearRE = regexp.MustCompile(`(?i)\b(?:built on|built with|requires?|needs?|depends on|based on|uses|pinned to)\s+(?:(?:the|at least|module|library)\s+)*[` + "`" + `*\[]*$`)
+	depNearRE = regexp.MustCompile(`(?i)\b(?:built on|built with|requires?|needs?|depends on|based on|uses|pinned to)\s+(?:(?:the|at least|module|library)\s+)*[` + "`" + `*\[]*(?:github\.com/)?(?:otfabric/)?$`)
+	linkRE    = regexp.MustCompile(`\[([^\]]*)\]\([^)]*\)`)
 	semverRE  = regexp.MustCompile(`\bv(\d+\.\d+\.\d+)\b`)
 )
 
@@ -56,6 +57,7 @@ func Versions(r *Repo) []finding.Finding {
 			if !depKeyRE.MatchString(l) {
 				continue
 			}
+			l := linkRE.ReplaceAllString(l, "$1") // "built on [otfabric/go-x](https://…) v1.2.3"
 			for name, want := range deps {
 				idx := strings.Index(l, name)
 				for idx >= 0 {
