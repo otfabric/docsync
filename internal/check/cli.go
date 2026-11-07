@@ -525,8 +525,26 @@ var orgExit = map[int]string{0: "ok", 1: "findings", 2: "usage", 3: "invalid_inp
 	6: "protocol", 7: "partial", 8: "unsupported", 9: "permission", 10: "internal"}
 
 // orgWords are the words a code's meaning must contain in the table.
-var orgWords = map[string][]string{"ok": {"success", "ok"}, "invalid_input": {"invalid input", "invalid_input", "invalid"},
-	"internal": {"internal"}, "findings": {"finding", "problem"}}
+var orgWords = map[string][]string{
+	"ok": {"success", "ok"}, "findings": {"finding", "problem"}, "usage": {"usage", "flag", "argument"},
+	"invalid_input": {"invalid input", "invalid_input", "invalid"},
+	"transport":     {"transport", "connect", "network", "i/o"},
+	"timeout":       {"timeout", "timed out", "deadline"},
+	"protocol":      {"protocol", "refused", "rejected", "exception", "negative"},
+	"partial":       {"partial"},
+	"unsupported":   {"unsupported", "not supported", "not implemented"},
+	"permission":    {"permission", "denied", "forbidden", "unauthori", "not authori"},
+	"internal":      {"internal", "unclassified", "unexpected"},
+}
+
+// kindAliases are constant names that mean an organisation kind
+// (ExitConnection is the transport code).
+var kindAliases = map[string]string{
+	"success": "ok", "connection": "transport", "connect": "transport", "network": "transport", "io": "transport",
+	"rejected": "protocol", "refused": "protocol", "exception": "protocol", "notsupported": "unsupported",
+	"notimplemented": "unsupported", "denied": "permission", "forbidden": "permission",
+	"failure": "internal", "unexpected": "internal", "invalidinput": "invalid_input", "invalid": "invalid_input",
+}
 
 var exitNameRE = regexp.MustCompile(`^[Ee]xit([A-Z0-9][A-Za-z0-9_]*)$`)
 
@@ -540,7 +558,10 @@ func exitCodes(r *Repo, c config.CLI) []finding.Finding {
 	}
 	for _, code := range sortedInts(consts) {
 		kind := consts[code].kind
-		if want, ok := orgExit[code]; ok && kind != want && (want != "ok" || kind != "success") {
+		if a, ok := kindAliases[strings.ReplaceAll(kind, "_", "")]; ok {
+			kind = a
+		}
+		if want, ok := orgExit[code]; ok && kind != want {
 			out = append(out, finding.Finding{Rule: "DS-EXIT", File: consts[code].file, Line: consts[code].line, Subject: fmt.Sprintf("exit %d", code),
 				Message: fmt.Sprintf("exit code %d is %q in the code; the organisation table makes %d %q", code, kind, code, want)})
 		}

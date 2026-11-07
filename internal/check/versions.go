@@ -99,6 +99,7 @@ func normGo(v string) string {
 var (
 	emailRE     = regexp.MustCompile(`[A-Za-z0-9._%+-]+@otfabric\.[a-z]+`)
 	supportedRE = regexp.MustCompile(`(?i)^(?:v)?(\d+)\.(\d+)\.x$`)
+	latestRE    = regexp.MustCompile(`(?i)^(?:the )?(?:latest|current|newest|most recent)(?: (?:release|version|minor))?$`)
 	yesRE       = regexp.MustCompile(`^(?:(?i:yes|supported)\b|✓|✅|✔|:white_check_mark:)`)
 )
 
@@ -143,9 +144,10 @@ func Security(r *Repo) []finding.Finding {
 			if len(row.Cells) < 2 {
 				continue
 			}
-			m := supportedRE.FindStringSubmatch(strings.Trim(row.Cells[0], "` "))
-			if m != nil && m[1]+"."+m[2]+".x" == want && yesRE.MatchString(strings.TrimSpace(row.Cells[1])) {
-				found = true
+			ver := strings.Trim(row.Cells[0], "` *")
+			m := supportedRE.FindStringSubmatch(ver)
+			if (m != nil && m[1]+"."+m[2]+".x" == want || latestRE.MatchString(ver)) && yesRE.MatchString(strings.TrimSpace(row.Cells[1])) {
+				found = true // "Latest release | Yes" names the latest minor, whatever it is
 			}
 		}
 	}
@@ -164,8 +166,8 @@ var (
 // Now is the clock of the release check (tests replace it).
 var Now = time.Now
 
-// Release checks RELEASE.md (DS-REL): a bullet repeated word for word from
-// the previous release, and a newest section that is still not tagged a day
+// Release checks RELEASE.md (DS-REL): a section that repeats most of the
+// previous release's bullets word for word, and a newest section that is still not tagged a day
 // after it was committed.
 func Release(r *Repo) []finding.Finding {
 	d := r.ReadDoc("RELEASE.md")
@@ -199,14 +201,28 @@ func Release(r *Repo) []finding.Finding {
 			}
 		}
 	}
+	// A section that copies most of the previous one was pasted and not
+	// rewritten. Single repeated bullets are status lines ("None.",
+	// "opcua-interop v0.13.0 (unchanged).", the Go version) and stay.
 	var out []finding.Finding
 	for i := 0; i+1 < len(secs); i++ {
 		newer, older := secs[i], secs[i+1]
+		first, repeated, total := 0, 0, 0
 		for b, line := range newer.bullets {
-			if _, ok := older.bullets[b]; ok && !bumpRE.MatchString(b) {
-				out = append(out, finding.Finding{Rule: "DS-REL", File: d.Path, Line: line, Subject: newer.version,
-					Message: fmt.Sprintf("%s repeats a bullet of %s word for word", newer.version, older.version)})
+			if bumpRE.MatchString(b) {
+				continue
 			}
+			total++
+			if _, ok := older.bullets[b]; ok {
+				repeated++
+				if first == 0 || line < first {
+					first = line
+				}
+			}
+		}
+		if repeated >= 3 && 2*repeated > total {
+			out = append(out, finding.Finding{Rule: "DS-REL", File: d.Path, Line: first, Subject: newer.version,
+				Message: fmt.Sprintf("%s repeats %d of its %d bullets from %s word for word", newer.version, repeated, total, older.version)})
 		}
 	}
 	if len(secs) > 0 && r.Git != nil && len(r.Git.Tags()) > 0 {

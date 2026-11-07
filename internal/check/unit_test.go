@@ -4,6 +4,7 @@ package check
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -106,5 +107,13 @@ func TestSplitDeclsStatements(t *testing.T) {
 	decl, _, stmt, _ := splitDeclsStatements(src, make([]int, len(src)))
 	if len(decl) != 6 || len(stmt) != 2 {
 		t.Fatalf("decl %q stmt %q", decl, stmt)
+	}
+}
+
+func TestNameListings(t *testing.T) {
+	got := nameListings([]string{"var (", "\tErrClosed // closed", "", "\tErrLost", ")", "x := 1", "const (", "\tA = 1", ")"})
+	want := []string{"var _ = []any{", "\tErrClosed, // closed", "", "\tErrLost, ", "}", "x := 1", "const (", "\tA = 1", ")"}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("got %q", got)
 	}
 }

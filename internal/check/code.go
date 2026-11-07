@@ -58,6 +58,51 @@ var (
 	importLineRE    = regexp.MustCompile(`^import\s+(?:([A-Za-z_.][A-Za-z0-9_]*)\s+)?"([^"]+)"\s*$`)
 )
 
+var (
+	listingOpenRE = regexp.MustCompile(`^\s*(var|const)\s*\(\s*$`)
+	listingNameRE = regexp.MustCompile(`^(\s*)([A-Za-z_][A-Za-z0-9_]*)\s*(//.*)?$`)
+)
+
+// nameListings rewrites a var or const block that only lists names (var (
+// ErrClosed // closed by the application ... )), which is not Go, into
+// var _ = []any{ErrClosed, ...}: the names must still exist. Lines keep
+// their numbers.
+func nameListings(src []string) []string {
+	out := append([]string{}, src...)
+	for i := 0; i < len(out); i++ {
+		if !listingOpenRE.MatchString(out[i]) {
+			continue
+		}
+		end, names := -1, 0
+		for j := i + 1; j < len(out); j++ {
+			t := strings.TrimSpace(out[j])
+			if t == ")" {
+				end = j
+				break
+			}
+			if t == "" || strings.HasPrefix(t, "//") {
+				continue
+			}
+			if !listingNameRE.MatchString(out[j]) {
+				break
+			}
+			names++
+		}
+		if end < 0 || names == 0 {
+			continue
+		}
+		out[i] = "var _ = []any{"
+		for j := i + 1; j < end; j++ {
+			if m := listingNameRE.FindStringSubmatch(out[j]); m != nil {
+				out[j] = m[1] + m[2] + ", " + m[3]
+			}
+		}
+		out[end] = "}"
+		i = end
+	}
+	return out
+}
+
 // prepare parses one block: as a whole file, as declarations, or as the body
 // of a function. It returns an error when none of them parses.
 func prepare(d *markdown.Doc, b markdown.Block) (*goBlock, error) {
@@ -93,6 +138,7 @@ func prepare(d *markdown.Doc, b markdown.Block) (*goBlock, error) {
 		l = ellipsisValueRE.ReplaceAllString(l, "$1 "+elided+"$3")
 		src, origin = append(src, l), append(origin, n)
 	}
+	src = nameListings(src)
 	try := func(lines []string, lineOrigin []int) (*goBlock, error) {
 		fset := token.NewFileSet()
 		f, err := parser.ParseFile(fset, d.Path, strings.Join(lines, "\n"), parser.ParseComments|parser.AllErrors)
@@ -440,7 +486,13 @@ func (tc *typeChecker) resolveImports(g *goBlock) map[string]string {
 		if !ok || !unresolved[x.Name] || imp[x.Name] != "" {
 			return true
 		}
-		if pkgs := tc.r.Index.PkgNames[x.Name]; len(pkgs) > 0 {
+		// A module package of the name wins, unless it lacks the member and
+		// the standard library has it (go-opcua/errors and errors.New).
+		std, isStd := stdPreferred[x.Name]
+		if ps := tc.std[x.Name]; !isStd && len(ps) == 1 {
+			std, isStd = ps[0], true
+		}
+		if pkgs := tc.r.Index.PkgNames[x.Name]; len(pkgs) > 0 && (!isStd || goapi.Has(pkgs, sel.Sel.Name)) {
 			best := pkgs[0]
 			for _, p := range pkgs[1:] {
 				if len(p.ImportPath) < len(best.ImportPath) {
@@ -450,10 +502,8 @@ func (tc *typeChecker) resolveImports(g *goBlock) map[string]string {
 			imp[x.Name] = best.ImportPath
 			return true
 		}
-		if p, ok := stdPreferred[x.Name]; ok {
-			imp[x.Name] = p
-		} else if ps := tc.std[x.Name]; len(ps) == 1 {
-			imp[x.Name] = ps[0]
+		if isStd {
+			imp[x.Name] = std
 		}
 		return true
 	})

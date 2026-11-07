@@ -12,8 +12,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
+	"github.com/otfabric/docsync/internal/apidoc"
 	"github.com/otfabric/docsync/internal/check"
 	"github.com/otfabric/docsync/internal/config"
 	"github.com/otfabric/docsync/internal/finding"
@@ -47,6 +49,7 @@ const usage = `docsync checks that the documents of a Go module say what its cod
 
 Usage:
   docsync check [--format text|github|json|markdown] [--rules DS-API,...] [dir]
+  docsync api [dir]            write the API reference to docs/api/
   docsync template [package]   print TestDocsyncManifest for a cobra CLI
   docsync rules
   docsync version
@@ -66,6 +69,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "check":
 		return runCheck(args[1:], stdout, stderr)
+	case "api":
+		return runAPI(args[1:], stdout, stderr)
 	case "template":
 		pkg := "main"
 		if len(args) > 2 {
@@ -149,6 +154,67 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 	return ExitOK
 }
 
+// runAPI writes the generated API reference and removes generated files of
+// packages that are gone.
+func runAPI(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 1 || len(args) == 1 && strings.HasPrefix(args[0], "-") {
+		_, _ = fmt.Fprint(stderr, usage)
+		return ExitUsage
+	}
+	dir := "."
+	if len(args) == 1 {
+		dir = args[0]
+	}
+	repo, err := Load(dir)
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "docsync:", err)
+		var ce *configError
+		if errors.As(err, &ce) {
+			return ExitInvalidInput
+		}
+		return ExitInternal
+	}
+	if repo.Module == nil {
+		_, _ = fmt.Fprintln(stderr, "docsync api: no go.mod in", dir)
+		return ExitInvalidInput
+	}
+	files, err := check.Reference(repo)
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "docsync:", err)
+		return ExitInternal
+	}
+	for _, d := range repo.Generated {
+		if _, ok := files[d.Path]; !ok {
+			if err := os.Remove(filepath.Join(dir, filepath.FromSlash(d.Path))); err != nil {
+				_, _ = fmt.Fprintln(stderr, "docsync:", err)
+				return ExitInternal
+			}
+			_, _ = fmt.Fprintln(stdout, "removed", d.Path)
+		}
+	}
+	names := make([]string, 0, len(files))
+	for n := range files {
+		names = append(names, n)
+	}
+	slices.Sort(names)
+	for _, n := range names {
+		p := filepath.Join(dir, filepath.FromSlash(n))
+		if old, err := os.ReadFile(p); err == nil && string(old) == files[n] {
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			_, _ = fmt.Fprintln(stderr, "docsync:", err)
+			return ExitInternal
+		}
+		if err := os.WriteFile(p, []byte(files[n]), 0o644); err != nil {
+			_, _ = fmt.Fprintln(stderr, "docsync:", err)
+			return ExitInternal
+		}
+		_, _ = fmt.Fprintln(stdout, "wrote", n)
+	}
+	return ExitOK
+}
+
 type configError struct{ err error }
 
 func (e *configError) Error() string { return e.err.Error() }
@@ -181,6 +247,10 @@ func Load(dir string) (*check.Repo, error) {
 		d, err := markdown.Read(dir, p)
 		if err != nil {
 			return nil, err
+		}
+		if apidoc.IsGenerated(d.Text()) {
+			r.Generated = append(r.Generated, d)
+			continue
 		}
 		r.Docs = append(r.Docs, d)
 	}
