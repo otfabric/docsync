@@ -65,3 +65,18 @@ func (p promClient) OnRead() {}
 srv, err := lib.New(lib.Config{Addr: ...})
 _, _ = srv, err
 ```
+
+`errors.Wrap` returns its error. Sentinels are declared with the standard
+library:
+
+```go
+var ErrXxx = errors.New("example")
+```
+
+A listing of names is checked for the names:
+
+```go
+var (
+	ErrNope // not declared anywhere
+)
+```

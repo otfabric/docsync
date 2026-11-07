@@ -20,9 +20,13 @@ type Repo struct {
 	Config *config.Config
 	Module *goapi.Module
 	Index  *goapi.Index
-	// Docs are the documents not excluded by the configuration.
+	// Docs are the documents not excluded by the configuration, without the
+	// generated API reference.
 	Docs []*markdown.Doc
-	Git  *gitinfo.Repo
+	// Generated are the files docsync api wrote (docs/api/**): the API
+	// reference for DS-API, compared by DS-GEN, read by no other check.
+	Generated []*markdown.Doc
+	Git       *gitinfo.Repo
 	// GoBin is the go command (tests replace it).
 	GoBin string
 }
@@ -53,7 +57,7 @@ func (r *Repo) ReadDoc(rel string) *markdown.Doc {
 // DocsMatching returns the documents matching one of the globs.
 func (r *Repo) DocsMatching(globs []string) []*markdown.Doc {
 	var out []*markdown.Doc
-	for _, d := range r.Docs {
+	for _, d := range append(append([]*markdown.Doc{}, r.Docs...), r.Generated...) {
 		if config.MatchAny(globs, d.Path) {
 			out = append(out, d)
 		}
@@ -70,7 +74,7 @@ func (r *Repo) skip(rel string) bool {
 type Check func(*Repo) []finding.Finding
 
 // All are the checks in the order they run.
-var All = []Check{API, Refs, Errors, Code, Versions, Security, Release, CLI}
+var All = []Check{API, Gen, Refs, Errors, Code, Versions, Security, Release, CLI}
 
 // Run runs every check and drops the findings the configuration accepts.
 func Run(r *Repo) []finding.Finding {

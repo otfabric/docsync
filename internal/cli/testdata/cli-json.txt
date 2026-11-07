@@ -4,7 +4,7 @@
     "file": "docs/exitcodes.md",
     "line": 8,
     "subject": "exit 4",
-    "message": "exit code 4 is documented as \"Network trouble\"; the organisation table makes it \"transport\""
+    "message": "exit code 4 is documented as \"Bad weather\"; the organisation table makes it \"transport\""
   },
   {
     "rule": "DS-EXIT",

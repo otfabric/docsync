@@ -10,7 +10,8 @@ Do not open a public issue. Expect an acknowledgement within 5 working days.
 
 | Version | Supported |
 |---|---|
-| 0.1.x | ✓ |
+| Latest release | ✓ |
+| Older releases | ✗ |
 
 ## Threat model
 
@@ -27,7 +28,7 @@ runs in the job of the repository it checks, with that job's permissions.
 
 ## Secure defaults
 
-docsync writes nothing in the checked repository. The scratch module of the
+`docsync check` writes nothing in the checked repository; `docsync api` writes only `docs/api/`, and removes only files there that carry its marker. The scratch module of the
 type check and the manifest file live in the system's temporary directory and
 are removed afterwards. It needs no token and sends nothing anywhere; `go`
 contacts the module proxy only for dependencies the module cache does not

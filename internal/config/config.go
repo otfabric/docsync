@@ -69,7 +69,7 @@ type Ignore struct {
 var (
 	DefaultAPIDocs     = []string{"API.md", "docs/API.md", "docs/api/**"}
 	DefaultExcludeDocs = []string{"RELEASE.md", "CHANGELOG.md", "PLAN.md", "ROADMAP.md", "PROGRESS.md", "**/adr/**", "**/DECISIONS.md", "**/RESEARCH.md", "**/*_DESIGN.md"}
-	DefaultSkipDirs    = []string{"internal/**", "**/internal/**", "cmd/**", "examples/**", "example/**", "e2e/**", "interop/**", "conformance/**", "tools/**", "scripts/**", "testdata/**", "**/testdata/**"}
+	DefaultSkipDirs    = []string{"internal/**", "**/internal/**", "cmd/**", "examples/**", "example/**", "e2e/**", "interop/**", "conformance/**", "tools/**", "scripts/**", "test/**", "tests/**", "testdata/**", "**/testdata/**"}
 	DefaultCLIDocs     = []string{"README.md", "docs/**"}
 )
 

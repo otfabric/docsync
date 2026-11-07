@@ -33,6 +33,7 @@ func Sort(fs []Finding) {
 // Rules describes every rule, in the order docsync rules prints them.
 var Rules = []struct{ ID, Title string }{
 	{"DS-API", "Every exported identifier of a public package is in the API reference"},
+	{"DS-GEN", "The generated API reference (docs/api, docsync api) is current"},
 	{"DS-REF", "Identifiers the documents name (pkg.Name, Type.Member, ErrX) exist"},
 	{"DS-ERR", "Every exported error sentinel and error type is in ERRORS.md"},
 	{"DS-CODE", "Go code blocks parse and type-check against the module"},
