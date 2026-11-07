@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/otfabric/docsync/internal/goapi"
 )
 
 func TestShellWords(t *testing.T) {
@@ -115,5 +117,85 @@ func TestNameListings(t *testing.T) {
 	want := []string{"var _ = []any{", "\tErrClosed, // closed", "", "\tErrLost, ", "}", "x := 1", "const (", "\tA = 1", ")"}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("got %q", got)
+	}
+}
+
+func TestBestPackage(t *testing.T) {
+	pkg := func(path string, names ...string) *goapi.Package {
+		p := &goapi.Package{ImportPath: path, Funcs: map[string]*goapi.Func{}}
+		for _, n := range names {
+			p.Funcs[n] = &goapi.Func{Name: n}
+		}
+		return p
+	}
+	for _, tc := range []struct {
+		name  string
+		pkgs  []*goapi.Package
+		names []string
+		want  string // import path, "" for none
+	}{
+		{"none", nil, []string{"New"}, ""},
+		{"more names win over a shorter path", []*goapi.Package{pkg("m/errors"), pkg("m/a/b/errors", "New")}, []string{"New"}, "m/a/b/errors"},
+		{"fewer names lose", []*goapi.Package{pkg("m/a/b/errors", "New"), pkg("m/errors")}, []string{"New"}, "m/a/b/errors"},
+		{"public over internal", []*goapi.Package{pkg("m/internal/errors", "New"), pkg("m/x/errors", "New")}, []string{"New"}, "m/x/errors"},
+		{"internal after public loses", []*goapi.Package{pkg("m/x/errors", "New"), pkg("m/internal/errors", "New")}, []string{"New"}, "m/x/errors"},
+		{"a directory named internal", []*goapi.Package{pkg("m/x/internal", "New"), pkg("m/long/path/internal2", "New")}, []string{"New"}, "m/long/path/internal2"},
+		{"shorter path on a tie", []*goapi.Package{pkg("m/a/b/errors", "New"), pkg("m/errors", "New")}, []string{"New"}, "m/errors"},
+		{"longer path on a tie loses", []*goapi.Package{pkg("m/errors"), pkg("m/a/errors")}, nil, "m/errors"},
+	} {
+		got := ""
+		if p := bestPackage(tc.pkgs, tc.names); p != nil {
+			got = p.ImportPath
+		}
+		if got != tc.want {
+			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestHasAny(t *testing.T) {
+	p := &goapi.Package{Funcs: map[string]*goapi.Func{"New": {Name: "New"}}}
+	for _, tc := range []struct {
+		names []string
+		want  bool
+	}{
+		{nil, false},
+		{[]string{"Wrap"}, false},
+		{[]string{"Wrap", "New"}, true},
+	} {
+		if got := hasAny(p, tc.names); got != tc.want {
+			t.Errorf("hasAny(%q) = %v, want %v", tc.names, got, tc.want)
+		}
+	}
+}
+
+func TestIsInternal(t *testing.T) {
+	for path, want := range map[string]bool{
+		"m/internal":       true,
+		"m/internal/wire":  true,
+		"m/x/internal/y":   true,
+		"m/internalwire":   false,
+		"m/transport/wire": false,
+		"internal":         false,
+	} {
+		if got := isInternal(path); got != want {
+			t.Errorf("isInternal(%q) = %v, want %v", path, got, want)
+		}
+	}
+}
+
+func TestStripSpans(t *testing.T) {
+	for in, want := range map[string]string{
+		"no code":             "no code",
+		"a `ErrX` b":          "a        b",
+		"a ``x ` y`` b":       "a " + strings.Repeat(" ", len("``x ` y``")) + " b",
+		"open ` ErrX":         "open ` ErrX",
+		"`a` and ``open ErrX": "    and ``open ErrX",
+		"``` ErrX":            "``` ErrX",
+		"`a``b` c":            "       c",
+	} {
+		if got := stripSpans(in); got != want {
+			t.Errorf("stripSpans(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
