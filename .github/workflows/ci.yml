@@ -19,6 +19,7 @@ jobs:
       coverpkg: github.com/otfabric/docsync/...
       codecov-name: docsync
       go-versions: '["1.26", "1.27"]'
+      policy-version: v1.3.0
     secrets: inherit
 
   # The per-package floor (COVER_PKG_MIN) and docsync on its own documents.
