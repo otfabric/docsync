@@ -4,7 +4,9 @@ run-name: "CI (${{ github.event_name }}) on ${{ github.ref_name }} by @${{ githu
 on:
   push:
     branches: [main]
+    paths-ignore: ['**/*.md']
   pull_request:
+    paths-ignore: ['**/*.md']
 
 permissions:
   contents: read
@@ -12,14 +14,14 @@ permissions:
 
 jobs:
   ci:
-    uses: otfabric/.github/.github/workflows/go-ci.yml@v3.3.1
+    uses: otfabric/.github/.github/workflows/go-ci.yml@v3.5.0
     with:
       run-govulncheck: true
       coverage-min: "85"
       coverpkg: github.com/otfabric/docsync/...
       codecov-name: docsync
       go-versions: '["1.26", "1.27"]'
-      policy-version: v1.3.0
+      run-policy: false # policy.yml runs it on every push
     secrets: inherit
 
   # The per-package floor (COVER_PKG_MIN) and docsync on its own documents.

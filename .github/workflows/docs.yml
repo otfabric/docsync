@@ -1,0 +1,15 @@
+name: Docs
+run-name: "Docs (${{ github.event_name }}) on ${{ github.ref_name }} by @${{ github.actor }}"
+# No path filter: this is the check that runs when CI skips a Markdown-only change.
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  docs:
+    uses: otfabric/.github/.github/workflows/docs-check.yml@v3.5.0
+    with:
+      run-policy: false # policy.yml runs it
+    secrets: inherit
