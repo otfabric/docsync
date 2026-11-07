@@ -15,7 +15,7 @@
 - DS-REF checks `ErrX` in inline code and `go` blocks, and `pkg.ErrX` of a module package in prose; an unqualified ErrX in prose or a table (IEC 61850 ErrTerm, ErrPar) is no longer reported.
 - DS-REF accepts the test functions of `_test.go` files (`Test…`, `Fuzz…`, `Benchmark…`, `Example…`, including a package-level `Example`), qualified (`devicefile.FuzzParse`) or not.
 - DS-REF accepts `pkg.Name` of a dependency package the module imports under a name a local package also has (go-ocpp's `client.HandshakeError` in ocppctl, which has `cmd/client`), looked up with `go list`.
-- DS-VER treats a dependency version as a requirement only when the keyword stands right before the module's name ("requires go-x v1.2.3") or the version ends in `+`; "Fixed in go-x v1.0.1" in a line that also says "requires" is not a claim. A link to the module counts as its name ("built on [otfabric/go-x](…) v1.2.3").
+- DS-VER treats a dependency version as a requirement only when the keyword stands right before the module's name ("requires go-x v1.2.3") or the version ends in `+`; "Fixed in go-x v1.0.1" in a line that also says "requires" is not a claim. A link to the module counts as its name (`built on [otfabric/go-x](…) v1.2.3`).
 - DS-JSON accepts a field named as a segment of a path: `attempts[].offered`, `meta.id`, `a[].b[].c`.
 - `HANDOFF-*.md` (design hand-off notes) are excluded by default.
 - DS-SEC accepts a supported-versions cell that starts with the version and adds a note (`0.8.x (latest: v0.8.2)`).
