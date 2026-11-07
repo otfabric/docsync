@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +19,9 @@ var (
 	// "Requires Go 1.26 or later", "Go 1.26+", "needs Go 1.26.3".
 	goClaimRE = regexp.MustCompile(`(?i)(?:\b(?:requires?|needs?|minimum|built with|build with)\b[^.\n]{0,20}?\bGo\s+(\d+\.\d+(?:\.\d+)?)\b|\bGo\s+(\d+\.\d+(?:\.\d+)?)(?:\s*\+|\s+or\s+(?:later|newer|above)|\s+and\s+later))`)
 	depKeyRE  = regexp.MustCompile(`(?i)\b(built on|built with|requires?|needs?|depends on|based on|uses|pinned to)\b|v\d+\.\d+\.\d+\+`)
+	// depNearRE is a requirement keyword right before the module name:
+	// "requires go-x", "built on `go-x`", "depends on the go-x module".
+	depNearRE = regexp.MustCompile(`(?i)\b(?:built on|built with|requires?|needs?|depends on|based on|uses|pinned to)\s+(?:(?:the|at least|module|library)\s+)*[` + "`" + `*\[]*$`)
 	semverRE  = regexp.MustCompile(`\bv(\d+\.\d+\.\d+)\b`)
 )
 
@@ -58,7 +62,11 @@ func Versions(r *Repo) []finding.Finding {
 					end := idx + len(name)
 					if (idx == 0 || !isNameChar(l[idx-1])) && (end == len(l) || !isNameChar(l[end])) {
 						rest := l[end:min(len(l), end+40)]
-						if mm := semverRE.FindStringSubmatchIndex(rest); mm != nil && !strings.Contains(rest[:mm[0]], "go-") {
+						mm := semverRE.FindStringSubmatchIndex(rest)
+						// A claim: the keyword attached to the name, or "go-x v1.2.3+"
+						// (not "fixed in go-x v1.2.3", nor "requires" elsewhere on the line).
+						claim := mm != nil && (depNearRE.MatchString(l[max(0, idx-40):idx]) || mm[1] < len(rest) && rest[mm[1]] == '+')
+						if claim && !strings.Contains(rest[:mm[0]], "go-") {
 							got := "v" + rest[mm[2]:mm[3]]
 							if got != want {
 								out = append(out, finding.Finding{Rule: "DS-VER", File: d.Path, Line: i + 1, Subject: name + " " + got,
@@ -103,6 +111,29 @@ var (
 	latestRE    = regexp.MustCompile(`(?i)^(?:the )?(?:latest|current|newest|most recent)(?: (?:release|version|minor))?$`)
 	yesRE       = regexp.MustCompile(`^(?:(?i:yes|supported)\b|✓|✅|✔|:white_check_mark:)`)
 )
+
+// "0.6.6 and later", "0.6+", ">= 0.6", "v1.2.x or newer".
+var (
+	openEndRE   = regexp.MustCompile(`(?i)^v?(\d+)\.(\d+)(?:\.(\d+))?(?:\.x)?\s*(?:\+|(?:and|or)\s+(?:later|newer|above|up)|onwards)(?:$|[\s(,;:])`)
+	openStartRE = regexp.MustCompile(`(?i)^(?:>=|≥)\s*v?(\d+)\.(\d+)(?:\.(\d+))?(?:\.x)?(?:$|[\s(,;:])`)
+)
+
+// openEnded reports whether ver is an open-ended range ("0.6.6 and later")
+// that includes latest.
+func openEnded(ver string, latest gitinfo.Version) bool {
+	m := openEndRE.FindStringSubmatch(ver)
+	if m == nil {
+		m = openStartRE.FindStringSubmatch(ver)
+	}
+	if m == nil {
+		return false
+	}
+	var from gitinfo.Version
+	from.Major, _ = strconv.Atoi(m[1])
+	from.Minor, _ = strconv.Atoi(m[2])
+	from.Patch, _ = strconv.Atoi(m[3]) // "" is 0
+	return latest.Compare(from) >= 0
+}
 
 var versionHeadRE = regexp.MustCompile(`(?i)^versions?$`)
 
@@ -160,7 +191,7 @@ func Security(r *Repo) []finding.Finding {
 			}
 			ver := cellText(row.Cells[0]) // "0.8.x", "0.8.x (latest: v0.8.2)"
 			m := supportedRE.FindStringSubmatch(ver)
-			if (m != nil && m[1]+"."+m[2]+".x" == want || latestRE.MatchString(ver)) && yesRE.MatchString(strings.TrimSpace(row.Cells[1])) {
+			if (m != nil && m[1]+"."+m[2]+".x" == want || latestRE.MatchString(ver) || openEnded(ver, latest)) && yesRE.MatchString(strings.TrimSpace(row.Cells[1])) {
 				found = true // "Latest release | Yes" names the latest minor, whatever it is
 			}
 		}

@@ -29,6 +29,8 @@ type Repo struct {
 	Git       *gitinfo.Repo
 	// GoBin is the go command (tests replace it).
 	GoBin string
+
+	depNames map[string]map[string]bool // import path -> exported names (nil: unknown)
 }
 
 // Doc returns the document at rel, or nil.

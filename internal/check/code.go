@@ -503,7 +503,12 @@ func (tc *typeChecker) resolveImports(g *goBlock) map[string]string {
 			std, isStd = ps[0], true
 		}
 		pkgs := tc.r.Index.PkgNames[base]
-		if best := bestPackage(pkgs, names); best != nil && (!isStd || hasAny(best, names)) {
+		best := bestPackage(pkgs, names)
+		if ext := tc.r.Index.Imports[base]; len(ext) == 1 && best != nil && !hasAny(best, names) {
+			imp[base] = ext[0] // the module's packages lack the names: the dependency the module imports
+			continue
+		}
+		if best != nil && (!isStd || hasAny(best, names)) {
 			imp[base] = best.ImportPath
 			continue
 		}

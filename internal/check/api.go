@@ -4,6 +4,8 @@ package check
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
 	"regexp"
 	"slices"
 	"strings"
@@ -133,8 +135,8 @@ func Refs(r *Repo) []finding.Finding {
 				if ix.IsTest(pkg, name) {
 					continue // a test, fuzz target, benchmark or example of a _test.go file
 				}
-				if len(pkgs) == 0 || placeholderName(name) || goapi.Has(pkgs, name) || ix.Members[name] {
-					continue
+				if len(pkgs) == 0 || placeholderName(name) || goapi.Has(pkgs, name) || ix.Members[name] || r.depHas(pkg, name) {
+					continue // depHas: a dependency's package of the name (go-ocpp's client in a CLI with cmd/client)
 				}
 				add(d, s.Line, pkg+"."+name, fmt.Sprintf("%s.%s: package %s has no exported %s", pkg, name, pkg, name))
 			}
@@ -192,6 +194,36 @@ func Refs(r *Repo) []finding.Finding {
 		}
 	}
 	return out
+}
+
+// depHas reports whether a package of another module that the module
+// imports under the name pkg declares name. When go list cannot say where
+// the package is, it is given the benefit of the doubt.
+func (r *Repo) depHas(pkg, name string) bool {
+	paths := r.Index.Imports[pkg]
+	if len(paths) == 0 {
+		return false
+	}
+	if r.depNames == nil {
+		r.depNames = map[string]map[string]bool{}
+	}
+	for _, p := range paths {
+		names, ok := r.depNames[p]
+		if !ok {
+			names = nil
+			cmd := exec.Command(r.GoBin, "list", "-e", "-f", "{{.Dir}}", p)
+			cmd.Dir = r.Dir
+			cmd.Env = append(os.Environ(), "GOWORK=off") // read-only: never writes go.mod or go.sum
+			if out, err := cmd.Output(); err == nil && strings.TrimSpace(string(out)) != "" {
+				names = goapi.ExportedNames(strings.TrimSpace(string(out)))
+			}
+			r.depNames[p] = names
+		}
+		if names == nil || names[name] {
+			return true
+		}
+	}
+	return false
 }
 
 // stripSpans blanks the inline code spans of a line (checked on their own).

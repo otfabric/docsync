@@ -191,6 +191,19 @@ func TestGitChecks(t *testing.T) {
 			t.Errorf("%s: exit %d\n%s", cell, code, out)
 		}
 	}
+	// An open-ended row supports the latest release when it is at or above it.
+	for _, cell := range []string{"0.2.6 and later", "0.3+", ">= 0.3.0", "≥ v0.1", "0.3.0 or newer"} {
+		writeFile(t, dir, "SECURITY.md", "Report to security@otfabric.io.\n\n| Version | Supported |\n|---|---|\n| "+cell+" | Yes |\n")
+		if code, out, _ := run(t, "check", dir); code != ExitOK {
+			t.Errorf("%s: exit %d\n%s", cell, code, out)
+		}
+	}
+	for _, cell := range []string{"0.3.1 and later", "0.4+", ">= 1.0"} {
+		writeFile(t, dir, "SECURITY.md", "Report to security@otfabric.io.\n\n| Version | Supported |\n|---|---|\n| "+cell+" | Yes |\n")
+		if _, out, _ := run(t, "check", dir); !strings.Contains(out, "does not support 0.3.x") {
+			t.Errorf("%s starts after v0.3.0:\n%s", cell, out)
+		}
+	}
 	writeFile(t, dir, "SECURITY.md", "Report to security@otfabric.io.\n\n| Version | Supported |\n|---|---|\n| 0.3.xy | Yes |\n")
 	if _, out, _ := run(t, "check", dir); !strings.Contains(out, "does not support 0.3.x") {
 		t.Errorf("0.3.xy is not 0.3.x:\n%s", out)

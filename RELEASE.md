@@ -14,12 +14,16 @@
 
 - DS-REF checks `ErrX` in inline code and `go` blocks, and `pkg.ErrX` of a module package in prose; an unqualified ErrX in prose or a table (IEC 61850 ErrTerm, ErrPar) is no longer reported.
 - DS-REF accepts the test functions of `_test.go` files (`Test…`, `Fuzz…`, `Benchmark…`, `Example…`, including a package-level `Example`), qualified (`devicefile.FuzzParse`) or not.
+- DS-REF accepts `pkg.Name` of a dependency package the module imports under a name a local package also has (go-ocpp's `client.HandshakeError` in ocppctl, which has `cmd/client`), looked up with `go list`.
+- DS-VER treats a dependency version as a requirement only when the keyword stands right before the module's name ("requires go-x v1.2.3") or the version ends in `+`; "Fixed in go-x v1.0.1" in a line that also says "requires" is not a claim.
+- DS-JSON accepts a field named as a segment of a path: `attempts[].offered`, `meta.id`, `a[].b[].c`.
 - `HANDOFF-*.md` (design hand-off notes) are excluded by default.
 - DS-SEC accepts a supported-versions cell that starts with the version and adds a note (`0.8.x (latest: v0.8.2)`).
+- DS-SEC accepts an open-ended supported-versions row (`0.6.6 and later`, `0.6+`, `>= 0.6`) that includes the latest release tag.
 
 ### Fixed
 
-- DS-CODE: a package name several module packages share resolves to the one declaring the selected names, and to a public package before an `internal/` one, instead of the shortest import path.
+- DS-CODE: a package name several module packages share resolves to the one declaring the selected names, and to a public package before an `internal/` one, instead of the shortest import path; when none declares them, to the dependency package of that name the module imports.
 - DS-FLAG: a root flag's command is named without a trailing space.
 - The library fixture no longer depends on docsync's own release tags.
 

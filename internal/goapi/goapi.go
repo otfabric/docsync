@@ -33,6 +33,10 @@ type Module struct {
 	// Benchmark…, Example…) its _test.go files declare, external test
 	// packages (name_test) under the package's name.
 	Tests map[string]map[string]bool
+	// Imports maps the name a Go file of the module imports a package of
+	// another module under (its last path element or its alias) to the
+	// import paths: the dependency packages a document can mean.
+	Imports map[string][]string
 	// Unparsed are the Go files that do not parse (left out).
 	Unparsed []string
 }
@@ -121,7 +125,7 @@ type Value struct {
 // directories are left out; of the _test.go files only the test functions
 // are read.
 func Load(dir string) (*Module, error) {
-	m := &Module{Dir: dir, Requires: map[string]string{}, Tests: map[string]map[string]bool{}}
+	m := &Module{Dir: dir, Requires: map[string]string{}, Tests: map[string]map[string]bool{}, Imports: map[string][]string{}}
 	if err := m.readGoMod(); err != nil {
 		return nil, err
 	}
@@ -160,6 +164,7 @@ func Load(dir string) (*Module, error) {
 		if ignored(f) {
 			return nil
 		}
+		m.addImports(f)
 		d := filepath.ToSlash(filepath.Dir(rel))
 		pkg := byDir[d]
 		if pkg == nil {
@@ -191,6 +196,31 @@ func Load(dir string) (*Module, error) {
 	return m, nil
 }
 
+// addImports records a file's imports of other modules' packages (paths
+// with a dot in the first element: not the standard library).
+func (m *Module) addImports(f *ast.File) {
+	for _, s := range f.Imports {
+		p := strings.Trim(s.Path.Value, `"`)
+		if p == m.Path || strings.HasPrefix(p, m.Path+"/") || !strings.Contains(strings.SplitN(p, "/", 2)[0], ".") {
+			continue
+		}
+		name := p[strings.LastIndexByte(p, '/')+1:]
+		if len(name) > 1 && name[0] == 'v' && strings.Trim(name[1:], "0123456789") == "" {
+			q := p[:strings.LastIndexByte(p, '/')]
+			name = q[strings.LastIndexByte(q, '/')+1:] // example.com/x/v2 is x
+		}
+		names := []string{name} // the package's name, as documents write it
+		if s.Name != nil && s.Name.Name != "_" && s.Name.Name != "." {
+			names = append(names, s.Name.Name) // and the file's alias
+		}
+		for _, n := range names {
+			if !slices.Contains(m.Imports[n], p) {
+				m.Imports[n] = append(m.Imports[n], p)
+			}
+		}
+	}
+}
+
 var testFuncRE = regexp.MustCompile(`^(?:Test|Fuzz|Benchmark|Example)(?:$|[^a-z])`)
 
 // addTests records the test functions of a _test.go file.
@@ -199,6 +229,7 @@ func (m *Module) addTests(fset *token.FileSet, p string) {
 	if err != nil || ignored(f) {
 		return
 	}
+	m.addImports(f)
 	name := strings.TrimSuffix(f.Name.Name, "_test")
 	for _, d := range f.Decls {
 		if fd, ok := d.(*ast.FuncDecl); ok && fd.Recv == nil && testFuncRE.MatchString(fd.Name.Name) {
@@ -480,6 +511,9 @@ type Index struct {
 	// Tests are the test functions of the _test.go files by package name
 	// (Module.Tests).
 	Tests map[string]map[string]bool
+	// Imports are the dependency packages the module imports, by name
+	// (Module.Imports).
+	Imports map[string][]string
 }
 
 // IsTest reports whether a _test.go file of a package named pkg declares
@@ -488,7 +522,7 @@ func (ix *Index) IsTest(pkg, name string) bool { return ix.Tests[pkg][name] }
 
 // NewIndex indexes the module.
 func NewIndex(m *Module) *Index {
-	ix := &Index{PkgNames: map[string][]*Package{}, Members: map[string]bool{}, Types: map[string][]*Type{}, Tests: m.Tests}
+	ix := &Index{PkgNames: map[string][]*Package{}, Members: map[string]bool{}, Types: map[string][]*Type{}, Tests: m.Tests, Imports: m.Imports}
 	for _, p := range m.Packages {
 		if !p.Main {
 			ix.PkgNames[p.Name] = append(ix.PkgNames[p.Name], p)
@@ -511,6 +545,40 @@ func NewIndex(m *Module) *Index {
 		}
 	}
 	return ix
+}
+
+// ExportedNames returns the exported top-level names (and the methods and
+// fields of exported types) of the package in dir, a dependency's: its
+// non-test Go files, whatever their build constraints.
+func ExportedNames(dir string) map[string]bool {
+	out := map[string]bool{}
+	files, _ := filepath.Glob(filepath.Join(dir, "*.go"))
+	fset := token.NewFileSet()
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		af, err := parser.ParseFile(fset, f, nil, parser.SkipObjectResolution)
+		if err != nil {
+			continue
+		}
+		p := &Package{Funcs: map[string]*Func{}, Types: map[string]*Type{}, Values: map[string]*Value{}}
+		p.add(fset, f, af, false, nil)
+		p.attachMethods()
+		for n := range p.Funcs {
+			out[n] = true
+		}
+		for n := range p.Values {
+			out[n] = true
+		}
+		for n, t := range p.Types {
+			out[n] = true
+			for mn := range t.Methods {
+				out[mn] = true
+			}
+		}
+	}
+	return out
 }
 
 // Has reports whether one of the packages declares name at top level.

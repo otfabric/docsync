@@ -710,9 +710,18 @@ func jsonFields(r *Repo, c config.CLI) []finding.Finding {
 			Message: c.JSONDocPath() + " is missing: the JSON output is a public contract of " + c.Name}}
 	}
 	text := d.Text()
+	// A path names its fields: `attempts[].offered`, `meta.id`.
+	inPath := map[string]bool{}
+	for _, s := range d.Spans() {
+		if jsonPathRE.MatchString(s.Text) {
+			for _, seg := range strings.Split(s.Text, ".") {
+				inPath[strings.TrimSuffix(seg, "[]")] = true
+			}
+		}
+	}
 	var out []finding.Finding
 	for _, name := range sortedKeys(fields) {
-		if strings.Contains(text, "`"+name+"`") || strings.Contains(text, `"`+name+`"`) {
+		if inPath[name] || strings.Contains(text, `"`+name+`"`) {
 			continue
 		}
 		out = append(out, finding.Finding{Rule: "DS-JSON", File: fields[name].file, Line: fields[name].line, Subject: name,
@@ -720,6 +729,8 @@ func jsonFields(r *Repo, c config.CLI) []finding.Finding {
 	}
 	return out
 }
+
+var jsonPathRE = regexp.MustCompile(`^[A-Za-z0-9_@$-]+(?:\[\])?(?:\.[A-Za-z0-9_@$-]+(?:\[\])?)*$`)
 
 // jsonTags returns the JSON field names of the structs of a directory, with
 // where each is declared.
