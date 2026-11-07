@@ -80,3 +80,18 @@ var (
 	ErrNope // not declared anywhere
 )
 ```
+
+`lib.FuzzParse` and `lib.Example` are a fuzz target and an example of the tests.
+
+Two packages are named wire; the block means the public one, which has Send:
+
+```go
+_ = wire.Send("x")
+_ = wire.Missing
+```
+
+`client.HandshakeError` is the dependency's client package, which the module imports.
+
+```go
+var _ error = client.HandshakeError{}
+```

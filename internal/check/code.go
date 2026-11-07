@@ -477,6 +477,8 @@ func (tc *typeChecker) resolveImports(g *goBlock) map[string]string {
 	for _, id := range g.file.Unresolved {
 		unresolved[id.Name] = true
 	}
+	var bases []string
+	sels := map[string][]string{} // selector base -> the names it selects
 	ast.Inspect(g.file, func(n ast.Node) bool {
 		sel, ok := n.(*ast.SelectorExpr)
 		if !ok {
@@ -486,28 +488,77 @@ func (tc *typeChecker) resolveImports(g *goBlock) map[string]string {
 		if !ok || !unresolved[x.Name] || imp[x.Name] != "" {
 			return true
 		}
-		// A module package of the name wins, unless it lacks the member and
-		// the standard library has it (go-opcua/errors and errors.New).
-		std, isStd := stdPreferred[x.Name]
-		if ps := tc.std[x.Name]; !isStd && len(ps) == 1 {
-			std, isStd = ps[0], true
+		if sels[x.Name] == nil {
+			bases = append(bases, x.Name)
 		}
-		if pkgs := tc.r.Index.PkgNames[x.Name]; len(pkgs) > 0 && (!isStd || goapi.Has(pkgs, sel.Sel.Name)) {
-			best := pkgs[0]
-			for _, p := range pkgs[1:] {
-				if len(p.ImportPath) < len(best.ImportPath) {
-					best = p
-				}
-			}
-			imp[x.Name] = best.ImportPath
-			return true
-		}
-		if isStd {
-			imp[x.Name] = std
-		}
+		sels[x.Name] = append(sels[x.Name], sel.Sel.Name)
 		return true
 	})
+	for _, base := range bases {
+		names := sels[base]
+		// A module package of the name wins, unless it lacks the members and
+		// the standard library has it (go-opcua/errors and errors.New).
+		std, isStd := stdPreferred[base]
+		if ps := tc.std[base]; !isStd && len(ps) == 1 {
+			std, isStd = ps[0], true
+		}
+		pkgs := tc.r.Index.PkgNames[base]
+		best := bestPackage(pkgs, names)
+		if ext := tc.r.Index.Imports[base]; len(ext) == 1 && best != nil && !hasAny(best, names) {
+			imp[base] = ext[0] // the module's packages lack the names: the dependency the module imports
+			continue
+		}
+		if best != nil && (!isStd || hasAny(best, names)) {
+			imp[base] = best.ImportPath
+			continue
+		}
+		if isStd {
+			imp[base] = std
+		}
+	}
 	return imp
+}
+
+// bestPackage picks the module package a block means by a package name
+// several packages share: the one declaring most of the names it selects,
+// then a public one over an internal one, then the shortest import path.
+func bestPackage(pkgs []*goapi.Package, names []string) *goapi.Package {
+	var best *goapi.Package
+	bestHits := 0
+	for _, p := range pkgs {
+		hits := 0
+		for _, n := range names {
+			if goapi.Has([]*goapi.Package{p}, n) {
+				hits++
+			}
+		}
+		switch {
+		case best == nil, hits > bestHits:
+		case hits < bestHits:
+			continue
+		case isInternal(p.ImportPath) != isInternal(best.ImportPath):
+			if isInternal(p.ImportPath) {
+				continue
+			}
+		case len(p.ImportPath) >= len(best.ImportPath):
+			continue
+		}
+		best, bestHits = p, hits
+	}
+	return best
+}
+
+func hasAny(p *goapi.Package, names []string) bool {
+	for _, n := range names {
+		if goapi.Has([]*goapi.Package{p}, n) {
+			return true
+		}
+	}
+	return false
+}
+
+func isInternal(importPath string) bool {
+	return strings.HasSuffix(importPath, "/internal") || strings.Contains(importPath, "/internal/")
 }
 
 var ignoredErrRE = regexp.MustCompile(`declared and not used|imported and not used|" imported as \w+ and not used|missing return|missing function body|is not used|defined and not used|no new variables on left side|redeclared in this block|other declaration of|must have no arguments and no return values|func init must have no|cannot use _ as value`)

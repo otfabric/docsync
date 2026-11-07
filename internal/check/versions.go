@@ -6,17 +6,23 @@ import (
 	"fmt"
 	"path"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/otfabric/docsync/internal/finding"
 	"github.com/otfabric/docsync/internal/gitinfo"
+	"github.com/otfabric/docsync/internal/markdown"
 )
 
 var (
 	// "Requires Go 1.26 or later", "Go 1.26+", "needs Go 1.26.3".
 	goClaimRE = regexp.MustCompile(`(?i)(?:\b(?:requires?|needs?|minimum|built with|build with)\b[^.\n]{0,20}?\bGo\s+(\d+\.\d+(?:\.\d+)?)\b|\bGo\s+(\d+\.\d+(?:\.\d+)?)(?:\s*\+|\s+or\s+(?:later|newer|above)|\s+and\s+later))`)
 	depKeyRE  = regexp.MustCompile(`(?i)\b(built on|built with|requires?|needs?|depends on|based on|uses|pinned to)\b|v\d+\.\d+\.\d+\+`)
+	// depNearRE is a requirement keyword right before the module name:
+	// "requires go-x", "built on `go-x`", "depends on the go-x module".
+	depNearRE = regexp.MustCompile(`(?i)\b(?:built on|built with|requires?|needs?|depends on|based on|uses|pinned to)\s+(?:(?:the|at least|module|library)\s+)*[` + "`" + `*\[]*(?:github\.com/)?(?:otfabric/)?$`)
+	linkRE    = regexp.MustCompile(`\[([^\]]*)\]\([^)]*\)`)
 	semverRE  = regexp.MustCompile(`\bv(\d+\.\d+\.\d+)\b`)
 )
 
@@ -51,13 +57,18 @@ func Versions(r *Repo) []finding.Finding {
 			if !depKeyRE.MatchString(l) {
 				continue
 			}
+			l := linkRE.ReplaceAllString(l, "$1") // "built on [otfabric/go-x](https://…) v1.2.3"
 			for name, want := range deps {
 				idx := strings.Index(l, name)
 				for idx >= 0 {
 					end := idx + len(name)
 					if (idx == 0 || !isNameChar(l[idx-1])) && (end == len(l) || !isNameChar(l[end])) {
 						rest := l[end:min(len(l), end+40)]
-						if mm := semverRE.FindStringSubmatchIndex(rest); mm != nil && !strings.Contains(rest[:mm[0]], "go-") {
+						mm := semverRE.FindStringSubmatchIndex(rest)
+						// A claim: the keyword attached to the name, or "go-x v1.2.3+"
+						// (not "fixed in go-x v1.2.3", nor "requires" elsewhere on the line).
+						claim := mm != nil && (depNearRE.MatchString(l[max(0, idx-40):idx]) || mm[1] < len(rest) && rest[mm[1]] == '+')
+						if claim && !strings.Contains(rest[:mm[0]], "go-") {
 							got := "v" + rest[mm[2]:mm[3]]
 							if got != want {
 								out = append(out, finding.Finding{Rule: "DS-VER", File: d.Path, Line: i + 1, Subject: name + " " + got,
@@ -98,10 +109,40 @@ func normGo(v string) string {
 
 var (
 	emailRE     = regexp.MustCompile(`[A-Za-z0-9._%+-]+@otfabric\.[a-z]+`)
-	supportedRE = regexp.MustCompile(`(?i)^(?:v)?(\d+)\.(\d+)\.x$`)
+	supportedRE = regexp.MustCompile(`(?i)^v?(\d+)\.(\d+)\.x(?:$|[\s(,;:])`)
 	latestRE    = regexp.MustCompile(`(?i)^(?:the )?(?:latest|current|newest|most recent)(?: (?:release|version|minor))?$`)
 	yesRE       = regexp.MustCompile(`^(?:(?i:yes|supported)\b|✓|✅|✔|:white_check_mark:)`)
 )
+
+// "0.6.6 and later", "0.6+", ">= 0.6", "v1.2.x or newer".
+var (
+	openEndRE   = regexp.MustCompile(`(?i)^v?(\d+)\.(\d+)(?:\.(\d+))?(?:\.x)?\s*(?:\+|(?:and|or)\s+(?:later|newer|above|up)|onwards)(?:$|[\s(,;:])`)
+	openStartRE = regexp.MustCompile(`(?i)^(?:>=|≥)\s*v?(\d+)\.(\d+)(?:\.(\d+))?(?:\.x)?(?:$|[\s(,;:])`)
+)
+
+// openEnded reports whether ver is an open-ended range ("0.6.6 and later")
+// that includes latest.
+func openEnded(ver string, latest gitinfo.Version) bool {
+	m := openEndRE.FindStringSubmatch(ver)
+	if m == nil {
+		m = openStartRE.FindStringSubmatch(ver)
+	}
+	if m == nil {
+		return false
+	}
+	var from gitinfo.Version
+	from.Major, _ = strconv.Atoi(m[1])
+	from.Minor, _ = strconv.Atoi(m[2])
+	from.Patch, _ = strconv.Atoi(m[3]) // "" is 0
+	return latest.Compare(from) >= 0
+}
+
+var versionHeadRE = regexp.MustCompile(`(?i)^versions?$`)
+
+// cellText is a table cell without emphasis and code marks.
+func cellText(c string) string {
+	return strings.TrimSpace(strings.NewReplacer("`", "", "*", "", "_", "").Replace(c))
+}
 
 // SecurityAddress is the only address for private security reports.
 const SecurityAddress = "security@otfabric.io"
@@ -129,30 +170,36 @@ func Security(r *Repo) []finding.Finding {
 		out = append(out, finding.Finding{Rule: "DS-SEC", File: d.Path, Line: 1, Subject: "contact",
 			Message: "SECURITY.md does not name " + SecurityAddress})
 	}
+	var tables [][]markdown.Row
+	for _, t := range d.Tables() {
+		if len(t[0].Cells) >= 2 && versionHeadRE.MatchString(cellText(t[0].Cells[0])) {
+			tables = append(tables, t)
+		}
+	}
+	if len(tables) == 0 {
+		return append(out, finding.Finding{Rule: "DS-SEC", File: d.Path, Line: 1, Subject: "supported versions",
+			Message: "SECURITY.md has no supported-versions table (| Version | Supported |)"})
+	}
 	latest, ok := r.Git.Latest()
 	if !ok {
 		return out
 	}
 	want := fmt.Sprintf("%d.%d.x", latest.Major, latest.Minor)
-	found, table := false, 0
-	for _, t := range d.Tables() {
-		if len(t[0].Cells) < 2 || !strings.EqualFold(strings.TrimSpace(t[0].Cells[0]), "version") {
-			continue
-		}
-		table = t[0].Line
+	found := false
+	for _, t := range tables {
 		for _, row := range t[1:] {
 			if len(row.Cells) < 2 {
 				continue
 			}
-			ver := strings.Trim(row.Cells[0], "` *")
+			ver := cellText(row.Cells[0]) // "0.8.x", "0.8.x (latest: v0.8.2)"
 			m := supportedRE.FindStringSubmatch(ver)
-			if (m != nil && m[1]+"."+m[2]+".x" == want || latestRE.MatchString(ver)) && yesRE.MatchString(strings.TrimSpace(row.Cells[1])) {
+			if (m != nil && m[1]+"."+m[2]+".x" == want || latestRE.MatchString(ver) || openEnded(ver, latest)) && yesRE.MatchString(strings.TrimSpace(row.Cells[1])) {
 				found = true // "Latest release | Yes" names the latest minor, whatever it is
 			}
 		}
 	}
-	if table > 0 && !found {
-		out = append(out, finding.Finding{Rule: "DS-SEC", File: d.Path, Line: table, Subject: "supported " + want,
+	if !found {
+		out = append(out, finding.Finding{Rule: "DS-SEC", File: d.Path, Line: tables[0][0].Line, Subject: "supported " + want,
 			Message: fmt.Sprintf("the supported-versions table does not support %s (latest release %s)", want, latest)})
 	}
 	return out

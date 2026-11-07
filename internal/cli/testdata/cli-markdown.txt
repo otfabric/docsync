@@ -5,5 +5,5 @@
 | DS-EXIT | `docs/exitcodes.md:8` | exit code 4 is documented as "Bad weather"; the organisation table makes it "transport" |
 | DS-EXIT | `docs/exitcodes.md:9` | exit code 6 is documented as "Broken peer"; the organisation table makes it "protocol" |
 | DS-EXIT | `docs/exitcodes.md:10` | exit code 7 is documented but no Exit… constant in internal/errs has it |
+| DS-EXIT | `docs/exitcodes.md:11` | exit code 9 is documented as "Safety interlock"; the organisation table makes it "permission" |
 | DS-EXIT | `internal/errs/errs.go:9` | exit code 6 is "broken" in the code; the organisation table makes 6 "protocol" |
-| DS-EXIT | `internal/errs/errs.go:10` | exit code 10 (internal) is not in docs/exitcodes.md |

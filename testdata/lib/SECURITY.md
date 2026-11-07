@@ -6,4 +6,5 @@ Report to security@otfabric.io.
 
 | Version | Supported |
 |---|---|
-| 0.1.x | Yes |
+| Latest release | Yes |
+| 0.1.x (first release) | No |

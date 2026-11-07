@@ -22,16 +22,16 @@
   },
   {
     "rule": "DS-EXIT",
-    "file": "internal/errs/errs.go",
-    "line": 9,
-    "subject": "exit 6",
-    "message": "exit code 6 is \"broken\" in the code; the organisation table makes 6 \"protocol\""
+    "file": "docs/exitcodes.md",
+    "line": 11,
+    "subject": "exit 9",
+    "message": "exit code 9 is documented as \"Safety interlock\"; the organisation table makes it \"permission\""
   },
   {
     "rule": "DS-EXIT",
     "file": "internal/errs/errs.go",
-    "line": 10,
-    "subject": "exit 10",
-    "message": "exit code 10 (internal) is not in docs/exitcodes.md"
+    "line": 9,
+    "subject": "exit 6",
+    "message": "exit code 6 is \"broken\" in the code; the organisation table makes 6 \"protocol\""
   }
 ]
