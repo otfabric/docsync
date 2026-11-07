@@ -1,0 +1,37 @@
+[
+  {
+    "rule": "DS-EXIT",
+    "file": "docs/exitcodes.md",
+    "line": 8,
+    "subject": "exit 4",
+    "message": "exit code 4 is documented as \"Network trouble\"; the organisation table makes it \"transport\""
+  },
+  {
+    "rule": "DS-EXIT",
+    "file": "docs/exitcodes.md",
+    "line": 9,
+    "subject": "exit 6",
+    "message": "exit code 6 is documented as \"Broken peer\"; the organisation table makes it \"protocol\""
+  },
+  {
+    "rule": "DS-EXIT",
+    "file": "docs/exitcodes.md",
+    "line": 10,
+    "subject": "exit 7",
+    "message": "exit code 7 is documented but no Exit… constant in internal/errs has it"
+  },
+  {
+    "rule": "DS-EXIT",
+    "file": "internal/errs/errs.go",
+    "line": 9,
+    "subject": "exit 6",
+    "message": "exit code 6 is \"broken\" in the code; the organisation table makes 6 \"protocol\""
+  },
+  {
+    "rule": "DS-EXIT",
+    "file": "internal/errs/errs.go",
+    "line": 10,
+    "subject": "exit 10",
+    "message": "exit code 10 (internal) is not in docs/exitcodes.md"
+  }
+]

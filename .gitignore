@@ -1,0 +1,12 @@
+/bin/
+/release/
+.DS_Store
+*.swp
+*~
+.idea/
+.vscode/
+*.test
+/coverage.out
+
+# Output of a bare `go build`, anchored so it can never hide a source folder
+/docsync

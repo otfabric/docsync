@@ -1,0 +1,22 @@
+API.md:6: DS-REF: Client.Write: type Client has no method or field Write
+API.md:6: DS-REF: client.Listen: package client has no exported Listen
+API.md:6: DS-REF: lib.NewClient: package lib has no exported NewClient
+API.md:11: DS-SIG: Client.Read: the document says Read(uint16, uint16) ([]byte, error), the code (lib.go:43) says Read(context.Context, uint16) ([]byte, error)
+API.md:12: DS-SIG: Client.Write: type Client has no method Write
+API.md:16: DS-SIG: Config.Port: type Config has no field Port
+API.md:22: DS-SIG: method Flush: the module has no method Flush
+API.md:26: DS-CODE: Go block does not compile: unknown field Port in struct literal of type lib.Config
+API.md:30: DS-CODE: Go block does not compile: assignment mismatch: 1 variable but c.Read returns 2 values
+API.md:41: DS-CODE: Go block does not parse: expected ';', found is (and 4 more errors) (fix it, or mark a non-Go block with another language)
+API.md:56: DS-CODE: Go block does not compile: undefined: lib.Missing
+ERRORS.md:3: DS-REF: ErrGone is not declared in the module
+README.md:3: DS-VER: states Go 1.25; go.mod says go 1.26.0
+README.md:3: DS-VER: states go-dep v1.1.0; go.mod requires v1.2.0
+README.md:4: DS-SEC: security@otfabric.com: OT Fabric addresses are @otfabric.io (security reports: security@otfabric.io)
+RELEASE.md:7: DS-REL: v0.3.0 repeats a bullet of v0.2.0 word for word
+lib.go:13: DS-API: variable lib.ErrMissing is not in the API reference (API.md)
+lib.go:13: DS-ERR: error sentinel lib.ErrMissing is not in ERRORS.md
+lib.go:24: DS-API: constant lib.MaxSize is not in the API reference (API.md)
+lib.go:34: DS-API: type lib.Inner is not in the API reference (API.md)
+lib.go:52: DS-ERR: error type lib.OpError is not in ERRORS.md
+docsync: 21 finding(s)

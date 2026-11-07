@@ -1,0 +1,28 @@
+name: Release
+run-name: Release (${{ inputs.bump }}) from ${{ github.ref_name }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Semver component to increment from the latest vX.Y.Z tag
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    uses: otfabric/.github/.github/workflows/go-binary-release.yml@v3.4.0
+    with:
+      bump: ${{ inputs.bump }}
+      binary-name: docsync
+      main-path: .
+      release-name-prefix: docsync
+      ldflags: "-s -w -X main.version=${VERSION}"
+    secrets: inherit

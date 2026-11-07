@@ -1,0 +1,6 @@
+::error file=docs/exitcodes.md,line=8,title=DS-EXIT::exit code 4 is documented as "Network trouble"; the organisation table makes it "transport"
+::error file=docs/exitcodes.md,line=9,title=DS-EXIT::exit code 6 is documented as "Broken peer"; the organisation table makes it "protocol"
+::error file=docs/exitcodes.md,line=10,title=DS-EXIT::exit code 7 is documented but no Exit… constant in internal/errs has it
+::error file=internal/errs/errs.go,line=9,title=DS-EXIT::exit code 6 is "broken" in the code; the organisation table makes 6 "protocol"
+::error file=internal/errs/errs.go,line=10,title=DS-EXIT::exit code 10 (internal) is not in docs/exitcodes.md
+docsync: 5 finding(s)

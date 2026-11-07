@@ -1,0 +1,4 @@
+{
+  "clis": [{"name": "democtl", "manifest": ".", "exit_codes": "internal/errs", "json_types": "internal/out"}],
+  "ignore": [{"rule": "DS-JSON", "subject": "extra", "reason": "fixture: an accepted finding"}]
+}
