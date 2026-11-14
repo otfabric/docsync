@@ -65,7 +65,9 @@ Exit codes: 0 when the documents agree with the code, 1 with findings; see
 
 The checks that need tags and history (DS-SEC's supported minor, DS-REL's untagged
 section) run only in a git work tree with its tags: check out with
-`fetch-depth: 0` in CI.
+`fetch-depth: 0` in CI. DS-REL dates the newest section from the last commit
+that added its heading: a section that was folded away and written again dates
+from the new commit, and one not committed yet has no date.
 
 Documents of history and plans are not checked: `RELEASE.md` (apart from
 DS-REL), `CHANGELOG.md`, `PLAN.md`, `ROADMAP.md`, `PROGRESS.md`, ADRs,

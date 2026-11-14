@@ -1,5 +1,16 @@
 # docsync Releases
 
+## v0.3.2
+
+**Date:** 2026-11-14
+**Previous release:** v0.3.1
+
+### Fixed
+
+- DS-REL dates an untagged newest section from the last commit that added its heading, not the first. A heading that was added, folded into another section and written again (go-iec61850's `## v1.21.0`) is no longer reported as days old in the pull request that writes it again. A heading that is back in the work tree but not committed has no date, as one never committed has none.
+
+---
+
 ## v0.3.1
 
 **Date:** 2026-11-07

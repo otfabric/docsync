@@ -59,22 +59,31 @@ func (r *Repo) Latest() (Version, bool) {
 // HasTag reports whether v is tagged.
 func (r *Repo) HasTag(v Version) bool { return slices.Contains(r.Tags(), v) }
 
-// Added returns the time of the oldest commit that added s to file, and
-// false when no commit did (s is not committed yet).
+// Added returns the time of the commit that added s to file as it is now:
+// the newest commit that changed how often s occurs in file, when file holds
+// s at that commit. A string that was added, removed and added again dates
+// from the last addition. file is relative to the repository's directory.
+// Added returns false when no commit added s, or when the newest such commit
+// removed it (s is back in the work tree but not committed yet).
 func (r *Repo) Added(file, s string) (time.Time, bool) {
 	if r == nil {
 		return time.Time{}, false
 	}
-	out, err := exec.Command("git", "-C", r.Dir, "log", "--format=%ct", "-S"+s, "--", file).Output()
+	out, err := exec.Command("git", "-C", r.Dir, "log", "-1", "--format=%H %ct", "-S"+s, "--", file).Output()
 	if err != nil {
 		return time.Time{}, false
 	}
 	f := strings.Fields(string(out))
-	if len(f) == 0 {
+	if len(f) != 2 {
 		return time.Time{}, false
 	}
-	sec, err := strconv.ParseInt(f[len(f)-1], 10, 64)
+	sec, err := strconv.ParseInt(f[1], 10, 64)
 	if err != nil {
+		return time.Time{}, false
+	}
+	// "./" makes the path relative to r.Dir, not to the top of the work tree.
+	blob, err := exec.Command("git", "-C", r.Dir, "show", f[0]+":./"+file).Output()
+	if err != nil || !strings.Contains(string(blob), s) {
 		return time.Time{}, false
 	}
 	return time.Unix(sec, 0), true
