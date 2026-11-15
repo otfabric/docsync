@@ -11,9 +11,8 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
-	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/otfabric/docsync/internal/apidoc"
 	"github.com/otfabric/docsync/internal/check"
@@ -22,6 +21,7 @@ import (
 	"github.com/otfabric/docsync/internal/gitinfo"
 	"github.com/otfabric/docsync/internal/goapi"
 	"github.com/otfabric/docsync/internal/markdown"
+	"github.com/otfabric/docsync/internal/repofs"
 )
 
 // Exit codes (organisation table, standards/api-design.md).
@@ -123,13 +123,9 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 	}
 	repo, err := Load(dir)
 	if err != nil {
-		_, _ = fmt.Fprintln(stderr, "docsync:", err)
-		var ce *configError
-		if errors.As(err, &ce) {
-			return ExitInvalidInput
-		}
-		return ExitInternal
+		return loadFailed(stderr, err)
 	}
+	defer func() { _ = repo.FS.Close() }()
 	fsAll := check.Run(repo)
 	if *rules != "" {
 		want := map[string]bool{}
@@ -145,7 +141,10 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 		fsAll = kept
 	}
 	if err := write(stdout, *format, fsAll); err != nil {
-		_, _ = fmt.Fprintln(stderr, "docsync:", err)
+		fail(stderr, err)
+		return ExitInternal
+	}
+	if refused(stderr, repo) {
 		return ExitInternal
 	}
 	if len(fsAll) > 0 {
@@ -154,8 +153,35 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 	return ExitOK
 }
 
+// loadFailed reports an error of Load and returns its exit code: 3 for a
+// configuration that cannot be used, 10 for everything else, a file docsync
+// refuses to read included.
+func loadFailed(stderr io.Writer, err error) int {
+	fail(stderr, err)
+	var re *repofs.RefusedError
+	var ce *configError
+	if !errors.As(err, &re) && errors.As(err, &ce) {
+		return ExitInvalidInput
+	}
+	return ExitInternal
+}
+
+// refused reports the files the checks met and did not read (repofs): a
+// check could not run without them, so the run fails.
+func refused(stderr io.Writer, repo *check.Repo) bool {
+	for _, e := range repo.FS.Refused() {
+		fail(stderr, fmt.Errorf("a check could not run: %w", e))
+	}
+	return len(repo.FS.Refused()) > 0
+}
+
+// fail prints an error on one line, with control characters made visible.
+func fail(stderr io.Writer, err error) {
+	_, _ = fmt.Fprintln(stderr, "docsync:", clean(err.Error(), false))
+}
+
 // runAPI writes the generated API reference and removes generated files of
-// packages that are gone.
+// packages that are gone. It changes nothing outside docs/api/ (repofs).
 func runAPI(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 1 || len(args) == 1 && strings.HasPrefix(args[0], "-") {
 		_, _ = fmt.Fprint(stderr, usage)
@@ -167,50 +193,52 @@ func runAPI(args []string, stdout, stderr io.Writer) int {
 	}
 	repo, err := Load(dir)
 	if err != nil {
-		_, _ = fmt.Fprintln(stderr, "docsync:", err)
-		var ce *configError
-		if errors.As(err, &ce) {
-			return ExitInvalidInput
-		}
-		return ExitInternal
+		return loadFailed(stderr, err)
 	}
+	defer func() { _ = repo.FS.Close() }()
 	if repo.Module == nil {
-		_, _ = fmt.Fprintln(stderr, "docsync api: no go.mod in", dir)
+		_, _ = fmt.Fprintln(stderr, "docsync api: no go.mod in", clean(dir, false))
 		return ExitInvalidInput
 	}
 	files, err := check.Reference(repo)
 	if err != nil {
-		_, _ = fmt.Fprintln(stderr, "docsync:", err)
+		fail(stderr, err)
 		return ExitInternal
 	}
-	for _, d := range repo.Generated {
-		if _, ok := files[d.Path]; !ok {
-			if err := os.Remove(filepath.Join(dir, filepath.FromSlash(d.Path))); err != nil {
-				_, _ = fmt.Fprintln(stderr, "docsync:", err)
-				return ExitInternal
-			}
-			_, _ = fmt.Fprintln(stdout, "removed", d.Path)
+	if refused(stderr, repo) {
+		return ExitInternal
+	}
+	write := map[string][]byte{}
+	for p, content := range files {
+		name, ok := strings.CutPrefix(p, apidoc.Dir+"/")
+		if !ok {
+			fail(stderr, &repofs.RefusedError{Op: "write", Path: p, Reason: "outside " + apidoc.Dir + ", which is all docsync api changes"})
+			return ExitInternal
 		}
+		write[name] = []byte(content)
 	}
-	names := make([]string, 0, len(files))
-	for n := range files {
-		names = append(names, n)
-	}
-	slices.Sort(names)
-	for _, n := range names {
-		p := filepath.Join(dir, filepath.FromSlash(n))
-		if old, err := os.ReadFile(p); err == nil && string(old) == files[n] {
+	var remove []string
+	for _, d := range repo.Generated {
+		if _, ok := files[d.Path]; ok {
 			continue
 		}
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-			_, _ = fmt.Fprintln(stderr, "docsync:", err)
+		name, ok := strings.CutPrefix(d.Path, apidoc.Dir+"/")
+		if !ok {
+			fail(stderr, &repofs.RefusedError{Op: "remove", Path: d.Path, Reason: "it starts with the marker of docsync api, but it is outside " + apidoc.Dir + ", which is all docsync api changes"})
 			return ExitInternal
 		}
-		if err := os.WriteFile(p, []byte(files[n]), 0o644); err != nil {
-			_, _ = fmt.Fprintln(stderr, "docsync:", err)
-			return ExitInternal
-		}
-		_, _ = fmt.Fprintln(stdout, "wrote", n)
+		remove = append(remove, name)
+	}
+	wrote, removed, err := repo.FS.Update(apidoc.Dir, write, remove)
+	for _, p := range removed {
+		_, _ = fmt.Fprintln(stdout, "removed", clean(p, false))
+	}
+	for _, p := range wrote {
+		_, _ = fmt.Fprintln(stdout, "wrote", clean(p, false))
+	}
+	if err != nil {
+		fail(stderr, err)
+		return ExitInternal
 	}
 	return ExitOK
 }
@@ -220,23 +248,45 @@ type configError struct{ err error }
 func (e *configError) Error() string { return e.err.Error() }
 func (e *configError) Unwrap() error { return e.err }
 
-// Load reads everything the checks need from dir.
+// readLimits bound what one run reads (repofs.Default; tests lower them).
+var readLimits = repofs.Default
+
+// Load reads everything the checks need from dir, through a repofs.FS that
+// the returned Repo holds and its caller closes.
 func Load(dir string) (*check.Repo, error) {
-	cfg, err := config.Load(dir)
+	fsys, err := repofs.Open(dir, readLimits)
 	if err != nil {
+		return nil, err
+	}
+	r, err := load(fsys)
+	if err != nil {
+		_ = fsys.Close()
+		return nil, err
+	}
+	return r, nil
+}
+
+func load(fsys *repofs.FS) (*check.Repo, error) {
+	dir := fsys.Dir()
+	cfg, err := config.Load(fsys)
+	if err != nil {
+		var re *repofs.RefusedError
+		if errors.As(err, &re) {
+			return nil, err
+		}
 		return nil, &configError{err}
 	}
-	r := &check.Repo{Dir: dir, Config: cfg, GoBin: "go", Git: gitinfo.Open(dir)}
+	r := &check.Repo{Dir: dir, FS: fsys, Config: cfg, GoBin: "go", Git: gitinfo.Open(dir)}
 	if gb := os.Getenv("DOCSYNC_GO"); gb != "" {
 		r.GoBin = gb
 	}
-	if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-		if r.Module, err = goapi.Load(dir); err != nil {
+	if fsys.Exists("go.mod") {
+		if r.Module, err = goapi.Load(fsys); err != nil {
 			return nil, err
 		}
 		r.Index = goapi.NewIndex(r.Module)
 	}
-	paths, err := markdown.List(dir)
+	paths, err := markdown.List(fsys)
 	if err != nil {
 		return nil, err
 	}
@@ -244,7 +294,7 @@ func Load(dir string) (*check.Repo, error) {
 		if config.MatchAny(cfg.ExcludeGlobs(), p) {
 			continue
 		}
-		d, err := markdown.Read(dir, p)
+		d, err := markdown.Read(fsys, p)
 		if err != nil {
 			return nil, err
 		}
@@ -268,7 +318,7 @@ func write(w io.Writer, format string, fs []finding.Finding) error {
 		return enc.Encode(fs)
 	case "github":
 		for _, f := range fs {
-			if _, err := fmt.Fprintf(w, "::error file=%s,line=%d,title=%s::%s\n", f.File, max(f.Line, 1), f.Rule, ghEscape(f.Message)); err != nil {
+			if _, err := fmt.Fprintf(w, "::error file=%s,line=%d,title=%s::%s\n", ghProperty(clean(f.File, false)), max(f.Line, 1), ghProperty(f.Rule), ghData(clean(f.Message, true))); err != nil {
 				return err
 			}
 		}
@@ -281,14 +331,14 @@ func write(w io.Writer, format string, fs []finding.Finding) error {
 		}
 		_, _ = fmt.Fprintf(w, "### docsync: %d finding(s)\n\n| Rule | Where | Finding |\n|---|---|---|\n", len(fs))
 		for _, f := range fs {
-			if _, err := fmt.Fprintf(w, "| %s | `%s` | %s |\n", f.Rule, where(f), strings.ReplaceAll(f.Message, "|", `\|`)); err != nil {
+			if _, err := fmt.Fprintf(w, "| %s | `%s` | %s |\n", f.Rule, where(f), strings.ReplaceAll(clean(f.Message, false), "|", `\|`)); err != nil {
 				return err
 			}
 		}
 		return nil
 	default:
 		for _, f := range fs {
-			if _, err := fmt.Fprintf(w, "%s: %s: %s\n", where(f), f.Rule, f.Message); err != nil {
+			if _, err := fmt.Fprintf(w, "%s: %s: %s\n", where(f), f.Rule, clean(f.Message, false)); err != nil {
 				return err
 			}
 		}
@@ -302,13 +352,62 @@ func write(w io.Writer, format string, fs []finding.Finding) error {
 
 func where(f finding.Finding) string {
 	if f.Line > 0 {
-		return fmt.Sprintf("%s:%d", f.File, f.Line)
+		return fmt.Sprintf("%s:%d", clean(f.File, false), f.Line)
 	}
-	return f.File
+	return clean(f.File, false)
 }
 
-func ghEscape(s string) string {
+// ghData escapes the message of a workflow command (GitHub's escapeData).
+func ghData(s string) string {
 	s = strings.ReplaceAll(s, "%", "%25")
 	s = strings.ReplaceAll(s, "\r", "%0D")
 	return strings.ReplaceAll(s, "\n", "%0A")
+}
+
+// ghProperty escapes a property value of a workflow command, such as file=
+// (GitHub's escapeProperty).
+func ghProperty(s string) string {
+	s = ghData(s)
+	s = strings.ReplaceAll(s, ":", "%3A")
+	return strings.ReplaceAll(s, ",", "%2C")
+}
+
+// clean makes visible what a terminal or a log viewer would act on: C0
+// control characters other than tab (and other than line feed and carriage
+// return when keepNL is set, for a format that escapes them), DEL, C1
+// control characters, the Unicode bidirectional controls and bytes that are
+// not UTF-8 become \xNN or \uNNNN. Anything else is unchanged.
+func clean(s string, keepNL bool) string {
+	unsafe := func(r rune) bool {
+		switch {
+		case r == '\t':
+			return false
+		case r == '\n' || r == '\r':
+			return !keepNL
+		case r < 0x20, r >= 0x7f && r < 0xa0:
+			return true
+		case r == 0x061c, r == 0x200e, r == 0x200f, r == 0x2028, r == 0x2029, r >= 0x202a && r <= 0x202e, r >= 0x2066 && r <= 0x2069:
+			return true
+		}
+		return false
+	}
+	if strings.IndexFunc(s, unsafe) < 0 && utf8.ValidString(s) {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		r, n := utf8.DecodeRuneInString(s[i:])
+		switch {
+		case r == utf8.RuneError && n == 1:
+			fmt.Fprintf(&b, `\x%02x`, s[i])
+		case !unsafe(r):
+			b.WriteString(s[i : i+n])
+		case r < 0x80:
+			fmt.Fprintf(&b, `\x%02x`, r)
+		default:
+			fmt.Fprintf(&b, `\u%04x`, r)
+		}
+		i += n
+	}
+	return b.String()
 }

@@ -2,7 +2,11 @@
 
 package config
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/otfabric/docsync/internal/repofs"
+)
 
 func TestMatch(t *testing.T) {
 	for _, tc := range []struct {
@@ -40,7 +44,12 @@ func TestParse(t *testing.T) {
 			t.Errorf("%s: no error", bad)
 		}
 	}
-	if _, err := Load("/nonexistent-dir-docsync"); err != nil {
+	fsys, err := repofs.Open(t.TempDir(), repofs.Default)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fsys.Close()
+	if _, err := Load(fsys); err != nil {
 		t.Errorf("a missing file is the zero config: %v", err)
 	}
 }

@@ -1,12 +1,11 @@
+# Called by pr.yml on every pull request that is not documentation only;
+# dispatch it to run it on a branch without a pull request.
 name: CI
 run-name: "CI (${{ github.event_name }}) on ${{ github.ref_name }} by @${{ github.actor }}"
 
 on:
-  push:
-    branches: [main]
-    paths-ignore: ['**/*.md']
-  pull_request:
-    paths-ignore: ['**/*.md']
+  workflow_call:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -14,14 +13,16 @@ permissions:
 
 jobs:
   ci:
-    uses: otfabric/.github/.github/workflows/go-ci.yml@v3.5.0
+    uses: otfabric/.github/.github/workflows/go-ci.yml@v3.8.0
     with:
       run-govulncheck: true
       coverage-min: "85"
       coverpkg: github.com/otfabric/docsync/...
       codecov-name: docsync
       go-versions: '["1.26", "1.27"]'
-      run-policy: false # policy.yml runs it on every push
+      # Every Fuzz target, found with go test -list, for 10 s each.
+      fuzz-time: 10s
+      run-policy: false
     secrets: inherit
 
   # The per-package floor (COVER_PKG_MIN) and docsync on its own documents.

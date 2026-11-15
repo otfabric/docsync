@@ -1,5 +1,33 @@
 # docsync Releases
 
+## v0.4.0
+
+**Date:** 2026-11-15
+**Previous release:** v0.3.2
+
+### Breaking
+
+- `docsync check` and `docsync api` read the checked directory only through a reader confined to it: regular files inside it, and a symbolic link only when it resolves inside it. A document, Go file, `go.mod`, `go.sum` or `.otfabric/docsync.json` that is a link leaving the directory (a link with an absolute target included), a named pipe, a device or a directory, a file over 64 MiB, and a run over 1 GiB of reads or 1,048,576 directory entries now stop the run with exit code 10 and a message that names the file. So does an `exit_codes` or `json_types` path that leaves the directory. A repository whose documents are symbolic links to files outside its tree now gets exit 10; replace such links with the files themselves.
+- `docsync api` writes and removes only regular files in `docs/api/`, and `docs` and `docs/api` must be directories, not symbolic links. When a path fails this, it exits 10 and changes nothing; that includes a file outside `docs/api/` that starts with the generated marker, which it used to remove. Replace a linked `docs` or `docs/api` with the directory itself, and edit or delete such a marker file by hand.
+
+### Added
+
+- `docs/json-output.md` documents the JSON output: the fields, their order and what the output holds for each exit code.
+- Fuzz targets for the Markdown, configuration, shell-word and Go-block parsers; CI runs each for 10 s (`make fuzz` locally).
+- An end-to-end suite, `e2e/`: it builds the binary, with `-race` when the tests run with it, and runs it on the fixture modules and on trees the tests make.
+
+### Changed
+
+- The `github` format escapes the `file=` property as GitHub's workflow commands require (`%`, CR, LF, `:` and `,`). Every format but `json` shows control characters, the Unicode bidirectional controls and bytes that are not UTF-8 in file names and messages as `\xNN` or `\uNNNN`, so each finding is one line; the messages on standard error do the same.
+- README: the commands pin v0.4.0, and "In CI" describes how the organisation runs docsync now. `docs/exitcodes.md` gives `docsync api` without `go.mod` (exit 3) and a refused file (exit 10) their place.
+- SECURITY.md: what docsync reads, what `docsync api` writes, and the limits of both.
+
+### Security
+
+- Reads of the checked directory and the writes of `docsync api` are confined to that directory and bounded in size (SECURITY.md).
+
+---
+
 ## v0.3.2
 
 **Date:** 2026-11-14

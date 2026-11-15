@@ -7,16 +7,20 @@ package goapi
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"go/types"
-	"os"
+	"io/fs"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/otfabric/docsync/internal/repofs"
 )
 
 // Module is a Go module and its packages.
@@ -121,42 +125,43 @@ type Value struct {
 	Error bool
 }
 
-// Load reads the module in dir. Nested modules, testdata, vendor and hidden
-// directories are left out; of the _test.go files only the test functions
-// are read.
-func Load(dir string) (*Module, error) {
-	m := &Module{Dir: dir, Requires: map[string]string{}, Tests: map[string]map[string]bool{}, Imports: map[string][]string{}}
-	if err := m.readGoMod(); err != nil {
+// Load reads the module of the checked directory. Nested modules, testdata,
+// vendor and hidden directories are left out; of the _test.go files only the
+// test functions are read.
+func Load(fsys *repofs.FS) (*Module, error) {
+	m := &Module{Dir: fsys.Dir(), Requires: map[string]string{}, Tests: map[string]map[string]bool{}, Imports: map[string][]string{}}
+	if err := m.readGoMod(fsys); err != nil {
 		return nil, err
 	}
 	byDir := map[string]*Package{}
 	fset := token.NewFileSet()
-	err := filepath.WalkDir(dir, func(p string, e os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, _ := filepath.Rel(dir, p)
-		rel = filepath.ToSlash(rel)
+	err := fsys.Walk(func(rel string, e fs.DirEntry) error {
 		if e.IsDir() {
 			name := e.Name()
-			if rel != "." && (strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || name == "vendor" || name == "testdata" || name == "node_modules") {
-				return filepath.SkipDir
-			}
-			if rel != "." {
-				if _, err := os.Stat(filepath.Join(p, "go.mod")); err == nil {
-					return filepath.SkipDir
-				}
+			if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || name == "vendor" || name == "testdata" || name == "node_modules" || fsys.Exists(rel+"/go.mod") {
+				return fs.SkipDir
 			}
 			return nil
 		}
-		if !strings.HasSuffix(p, ".go") {
+		if !strings.HasSuffix(rel, ".go") {
 			return nil
 		}
-		if strings.HasSuffix(p, "_test.go") {
-			m.addTests(fset, p)
+		src, err := fsys.ReadFile(rel)
+		missing := errors.Is(err, fs.ErrNotExist) // a link to nothing: it does not parse
+		if err != nil && !missing {
+			return err
+		}
+		p := filepath.Join(m.Dir, filepath.FromSlash(rel))
+		if strings.HasSuffix(rel, "_test.go") {
+			if !missing {
+				m.addTests(fset, p, src)
+			}
 			return nil
 		}
-		f := parseFile(fset, p)
+		var f *ast.File
+		if !missing {
+			f = parseFile(fset, p, src)
+		}
 		if f == nil {
 			m.Unparsed = append(m.Unparsed, rel) // go vet reports it
 			return nil
@@ -165,7 +170,7 @@ func Load(dir string) (*Module, error) {
 			return nil
 		}
 		m.addImports(f)
-		d := filepath.ToSlash(filepath.Dir(rel))
+		d := path.Dir(rel)
 		pkg := byDir[d]
 		if pkg == nil {
 			ip := m.Path
@@ -224,8 +229,8 @@ func (m *Module) addImports(f *ast.File) {
 var testFuncRE = regexp.MustCompile(`^(?:Test|Fuzz|Benchmark|Example)(?:$|[^a-z])`)
 
 // addTests records the test functions of a _test.go file.
-func (m *Module) addTests(fset *token.FileSet, p string) {
-	f, err := parser.ParseFile(fset, p, nil, parser.SkipObjectResolution|parser.ParseComments) // ignored reads the comments
+func (m *Module) addTests(fset *token.FileSet, p string, src []byte) {
+	f, err := parser.ParseFile(fset, p, src, parser.SkipObjectResolution|parser.ParseComments) // ignored reads the comments
 	if err != nil || ignored(f) {
 		return
 	}
@@ -242,8 +247,8 @@ func (m *Module) addTests(fset *token.FileSet, p string) {
 }
 
 // parseFile parses a Go file, or returns nil when it does not parse.
-func parseFile(fset *token.FileSet, path string) *ast.File {
-	f, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
+func parseFile(fset *token.FileSet, path string, src []byte) *ast.File {
+	f, err := parser.ParseFile(fset, path, src, parser.ParseComments)
 	if err != nil {
 		return nil
 	}
@@ -266,8 +271,8 @@ func ignored(f *ast.File) bool {
 
 var requireRE = regexp.MustCompile(`^(\S+)\s+(v\S+)`)
 
-func (m *Module) readGoMod() error {
-	data, err := os.ReadFile(filepath.Join(m.Dir, "go.mod"))
+func (m *Module) readGoMod(fsys *repofs.FS) error {
+	data, err := fsys.ReadFile("go.mod")
 	if err != nil {
 		return err
 	}

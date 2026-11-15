@@ -11,6 +11,7 @@ import (
 	"go/token"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -22,6 +23,7 @@ import (
 	"github.com/otfabric/docsync/internal/config"
 	"github.com/otfabric/docsync/internal/finding"
 	"github.com/otfabric/docsync/internal/markdown"
+	"github.com/otfabric/docsync/internal/repofs"
 )
 
 // ManifestEnv names the file TestDocsyncManifest writes the command tree to.
@@ -556,7 +558,7 @@ func exitCodes(r *Repo, c config.CLI) []finding.Finding {
 	var out []finding.Finding
 	consts := map[int]exitConst{}
 	if c.ExitCodes != "" {
-		consts = exitConsts(r.Dir, c.ExitCodes)
+		consts = exitConsts(r.FS, c.ExitCodes)
 	}
 	for _, code := range sortedInts(consts) {
 		kind := consts[code].kind
@@ -639,16 +641,38 @@ func sortedInts[V any](m map[int]V) []int {
 	return k
 }
 
-// exitConsts reads the Exit… integer constants of a package directory.
-func exitConsts(root, dir string) map[int]exitConst {
-	out := map[int]exitConst{}
-	fset := token.NewFileSet()
-	matches, _ := filepath.Glob(filepath.Join(root, dir, "*.go"))
-	for _, p := range matches {
-		if strings.HasSuffix(p, "_test.go") {
+// goFiles returns the non-test Go files of a package directory, sorted,
+// with their content. A directory that does not exist has none; a file
+// docsync refuses to read is left out here and fails the run (repofs).
+func goFiles(fsys *repofs.FS, dir string) (names []string, src map[string][]byte) {
+	src = map[string][]byte{}
+	entries, err := fsys.ReadDir(path.Clean(filepath.ToSlash(dir)))
+	if err != nil {
+		return nil, src
+	}
+	for _, e := range entries {
+		n := e.Name()
+		if e.IsDir() || !strings.HasSuffix(n, ".go") || strings.HasSuffix(n, "_test.go") {
 			continue
 		}
-		f, err := parser.ParseFile(fset, p, nil, 0)
+		rel := path.Join(path.Clean(filepath.ToSlash(dir)), n)
+		data, err := fsys.ReadFile(rel)
+		if err != nil {
+			continue
+		}
+		names, src[rel] = append(names, rel), data
+	}
+	return names, src
+}
+
+// exitConsts reads the Exit… integer constants of a package directory.
+func exitConsts(fsys *repofs.FS, dir string) map[int]exitConst {
+	out := map[int]exitConst{}
+	fset := token.NewFileSet()
+	names, src := goFiles(fsys, dir)
+	for _, rel := range names {
+		p := filepath.Join(fsys.Dir(), filepath.FromSlash(rel))
+		f, err := parser.ParseFile(fset, p, src[rel], 0)
 		if err != nil {
 			continue
 		}
@@ -672,8 +696,7 @@ func exitConsts(root, dir string) map[int]exitConst {
 					if err != nil {
 						continue
 					}
-					rel, _ := filepath.Rel(root, p)
-					out[code] = exitConst{kind: snake(m[1]), file: filepath.ToSlash(rel), line: fset.Position(n.Pos()).Line}
+					out[code] = exitConst{kind: snake(m[1]), file: rel, line: fset.Position(n.Pos()).Line}
 				}
 			}
 		}
@@ -700,7 +723,7 @@ func jsonFields(r *Repo, c config.CLI) []finding.Finding {
 	if c.JSONTypes == "" {
 		return nil
 	}
-	fields := jsonTags(r.Dir, c.JSONTypes)
+	fields := jsonTags(r.FS, c.JSONTypes)
 	if len(fields) == 0 {
 		return nil
 	}
@@ -734,19 +757,16 @@ var jsonPathRE = regexp.MustCompile(`^[A-Za-z0-9_@$-]+(?:\[\])?(?:\.[A-Za-z0-9_@
 
 // jsonTags returns the JSON field names of the structs of a directory, with
 // where each is declared.
-func jsonTags(root, dir string) map[string]exitConst {
+func jsonTags(fsys *repofs.FS, dir string) map[string]exitConst {
 	out := map[string]exitConst{}
 	fset := token.NewFileSet()
-	matches, _ := filepath.Glob(filepath.Join(root, dir, "*.go"))
-	for _, p := range matches {
-		if strings.HasSuffix(p, "_test.go") {
-			continue
-		}
-		f, err := parser.ParseFile(fset, p, nil, 0)
+	names, src := goFiles(fsys, dir)
+	for _, rel := range names {
+		p := filepath.Join(fsys.Dir(), filepath.FromSlash(rel))
+		f, err := parser.ParseFile(fset, p, src[rel], 0)
 		if err != nil {
 			continue
 		}
-		rel, _ := filepath.Rel(root, p)
 		ast.Inspect(f, func(n ast.Node) bool {
 			st, ok := n.(*ast.StructType)
 			if !ok {
@@ -765,7 +785,7 @@ func jsonTags(root, dir string) map[string]exitConst {
 					continue
 				}
 				if _, ok := out[name]; !ok {
-					out[name] = exitConst{file: filepath.ToSlash(rel), line: fset.Position(fl.Pos()).Line}
+					out[name] = exitConst{file: rel, line: fset.Position(fl.Pos()).Line}
 				}
 			}
 			return true
