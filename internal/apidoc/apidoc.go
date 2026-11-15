@@ -7,6 +7,7 @@ package apidoc
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/build"
@@ -15,11 +16,14 @@ import (
 	"go/parser"
 	"go/printer"
 	"go/token"
-	"os"
+	"io"
+	"io/fs"
 	"path"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/otfabric/docsync/internal/repofs"
 )
 
 // Dir is where the reference lives, relative to the module.
@@ -36,14 +40,14 @@ type Package struct {
 }
 
 // Generate returns the files of the reference: path relative to the module
-// mapped to content. modPath is the module path.
-func Generate(dir, modPath string, pkgs []Package) (map[string]string, error) {
+// mapped to content. fsys is the module's directory, modPath its path.
+func Generate(fsys *repofs.FS, modPath string, pkgs []Package) (map[string]string, error) {
 	out := map[string]string{}
 	type entry struct{ file, importPath, synopsis string }
 	var index []entry
 	sort.Slice(pkgs, func(i, j int) bool { return pkgs[i].ImportPath < pkgs[j].ImportPath })
 	for _, p := range pkgs {
-		md, synopsis, ok, err := render(filepath.Join(dir, filepath.FromSlash(p.Rel)), p.ImportPath)
+		md, synopsis, ok, err := render(fsys, p.Rel, p.ImportPath)
 		if err != nil {
 			return nil, err
 		}
@@ -79,11 +83,29 @@ func FileName(modPath, rel string) string {
 // IsGenerated reports whether content was written by docsync api.
 func IsGenerated(content string) bool { return strings.HasPrefix(content, Marker) }
 
-func render(dir, importPath string) (md, synopsis string, ok bool, err error) {
+func render(fsys *repofs.FS, rel, importPath string) (md, synopsis string, ok bool, err error) {
 	fset := token.NewFileSet()
-	entries, err := os.ReadDir(dir)
+	entries, err := fsys.ReadDir(rel)
 	if err != nil {
 		return "", "", false, err
+	}
+	dir := filepath.Join(fsys.Dir(), filepath.FromSlash(rel))
+	// The Go files, read once: the build constraints of every platform and
+	// the parser read them from here.
+	src := map[string][]byte{}
+	for _, e := range entries {
+		n := e.Name()
+		if e.IsDir() || !strings.HasSuffix(n, ".go") || strings.HasSuffix(n, "_test.go") {
+			continue
+		}
+		data, err := fsys.ReadFile(path.Join(rel, n))
+		if errors.Is(err, fs.ErrNotExist) {
+			continue // a link to nothing
+		}
+		if err != nil {
+			return "", "", false, err
+		}
+		src[n] = data
 	}
 	// Files per platform, in platform order: a declaration of a name keeps
 	// the first platform's file, so the reference has one per name and the
@@ -92,16 +114,20 @@ func render(dir, importPath string) (md, synopsis string, ok bool, err error) {
 	declared := map[string]bool{}
 	taken := map[string]bool{}
 	for _, ctx := range buildContexts {
+		ctx.OpenFile = func(p string) (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(src[filepath.Base(p)])), nil
+		}
 		for _, e := range entries {
 			n := e.Name()
-			if taken[n] || e.IsDir() || !strings.HasSuffix(n, ".go") || strings.HasSuffix(n, "_test.go") {
+			data, have := src[n]
+			if taken[n] || !have {
 				continue
 			}
 			if match, err := ctx.MatchFile(dir, n); err != nil || !match {
 				continue
 			}
 			taken[n] = true
-			f, err := parser.ParseFile(fset, filepath.Join(dir, n), nil, parser.ParseComments)
+			f, err := parser.ParseFile(fset, filepath.Join(dir, n), data, parser.ParseComments)
 			if err != nil || ast.IsGenerated(f) || ignored(f) || f.Name.Name == "main" {
 				continue
 			}

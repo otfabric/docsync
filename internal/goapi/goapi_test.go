@@ -8,7 +8,20 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+
+	"github.com/otfabric/docsync/internal/repofs"
 )
+
+// load reads the module in dir.
+func load(t *testing.T, dir string) (*Module, error) {
+	t.Helper()
+	fsys, err := repofs.Open(dir, repofs.Default)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = fsys.Close() })
+	return Load(fsys)
+}
 
 // writeFiles writes name -> content under dir.
 func writeFiles(t *testing.T, dir string, files map[string]string) {
@@ -91,7 +104,7 @@ import (
 func TestIgnored(t *testing.T) { _ = ignoredonly.X }
 `,
 	})
-	m, err := Load(dir)
+	m, err := load(t, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +154,7 @@ func TestLoadAlias(t *testing.T) {
 		"go.mod": "module example.com/m\n",
 		"m.go":   "package m\n\nimport y \"github.com/dep/x\"\n\nvar _ = y.A\n",
 	})
-	m, err := Load(dir)
+	m, err := load(t, dir)
 	if err != nil {
 		t.Fatal(err)
 	}

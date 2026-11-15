@@ -13,6 +13,7 @@ import (
 	"go/token"
 	"go/types"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path"
@@ -372,7 +373,7 @@ func newTypeChecker(r *Repo, blocks []*goBlock) (*typeChecker, error) {
 	if err != nil {
 		return nil, err
 	}
-	gomod, err := os.ReadFile(filepath.Join(r.Dir, "go.mod"))
+	gomod, err := r.FS.ReadFile("go.mod")
 	if err != nil {
 		return nil, err
 	}
@@ -397,10 +398,13 @@ func newTypeChecker(r *Repo, blocks []*goBlock) (*typeChecker, error) {
 	if err := os.WriteFile(filepath.Join(tc.dir, "go.mod"), mod.Bytes(), 0o600); err != nil {
 		return nil, err
 	}
-	if sum, err := os.ReadFile(filepath.Join(r.Dir, "go.sum")); err == nil {
+	switch sum, err := r.FS.ReadFile("go.sum"); {
+	case err == nil:
 		if err := os.WriteFile(filepath.Join(tc.dir, "go.sum"), sum, 0o600); err != nil {
 			return nil, err
 		}
+	case !errors.Is(err, fs.ErrNotExist):
+		return nil, err
 	}
 	paths := sortedKeys(need)
 	args := append([]string{"list", "-e", "-export", "-deps", "-json=ImportPath,Export,Error"}, paths...)

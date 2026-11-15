@@ -15,7 +15,7 @@ func Reference(r *Repo) (map[string]string, error) {
 	for _, p := range r.publicPackages() {
 		pkgs = append(pkgs, apidoc.Package{Rel: p.Rel, ImportPath: p.ImportPath})
 	}
-	return apidoc.Generate(r.Dir, r.Module.Path, pkgs)
+	return apidoc.Generate(r.FS, r.Module.Path, pkgs)
 }
 
 // Gen checks that the generated API reference is what docsync api writes

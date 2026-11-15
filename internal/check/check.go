@@ -12,11 +12,14 @@ import (
 	"github.com/otfabric/docsync/internal/gitinfo"
 	"github.com/otfabric/docsync/internal/goapi"
 	"github.com/otfabric/docsync/internal/markdown"
+	"github.com/otfabric/docsync/internal/repofs"
 )
 
 // Repo is everything the checks read.
 type Repo struct {
-	Dir    string
+	Dir string
+	// FS reads the files of Dir: every check reads through it.
+	FS     *repofs.FS
 	Config *config.Config
 	Module *goapi.Module
 	Index  *goapi.Index
@@ -49,7 +52,7 @@ func (r *Repo) ReadDoc(rel string) *markdown.Doc {
 	if d := r.Doc(rel); d != nil {
 		return d
 	}
-	d, err := markdown.Read(r.Dir, rel)
+	d, err := markdown.Read(r.FS, rel)
 	if err != nil {
 		return nil
 	}

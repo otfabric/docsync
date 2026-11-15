@@ -5,11 +5,13 @@
 package markdown
 
 import (
-	"os"
-	"path/filepath"
+	"io/fs"
+	"path"
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/otfabric/docsync/internal/repofs"
 )
 
 // Doc is one Markdown document.
@@ -73,9 +75,9 @@ func Parse(path string, data []byte) *Doc {
 	return d
 }
 
-// Read parses the file root/rel.
-func Read(root, rel string) (*Doc, error) {
-	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+// Read parses the file rel of the checked directory.
+func Read(fsys *repofs.FS, rel string) (*Doc, error) {
+	data, err := fsys.ReadFile(rel)
 	if err != nil {
 		return nil, err
 	}
@@ -218,30 +220,20 @@ func Words(docs ...*Doc) map[string]bool {
 
 var wordRE = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*`)
 
-// List returns the Markdown files below root, slash-separated and sorted.
-// Hidden directories, vendor, node_modules, testdata and nested modules
-// (directories with their own go.mod) are skipped.
-func List(root string) ([]string, error) {
+// List returns the Markdown files of the checked directory, slash-separated
+// and sorted. Hidden directories, vendor, node_modules, testdata and nested
+// modules (directories with their own go.mod) are skipped.
+func List(fsys *repofs.FS) ([]string, error) {
 	var out []string
-	err := filepath.WalkDir(root, func(p string, e os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, _ := filepath.Rel(root, p)
-		rel = filepath.ToSlash(rel)
+	err := fsys.Walk(func(rel string, e fs.DirEntry) error {
 		if e.IsDir() {
 			name := e.Name()
-			if rel != "." && (strings.HasPrefix(name, ".") || name == "vendor" || name == "node_modules" || name == "testdata") {
-				return filepath.SkipDir
-			}
-			if rel != "." {
-				if _, err := os.Stat(filepath.Join(p, "go.mod")); err == nil {
-					return filepath.SkipDir
-				}
+			if strings.HasPrefix(name, ".") || name == "vendor" || name == "node_modules" || name == "testdata" || fsys.Exists(rel+"/go.mod") {
+				return fs.SkipDir
 			}
 			return nil
 		}
-		if strings.EqualFold(filepath.Ext(p), ".md") {
+		if strings.EqualFold(path.Ext(rel), ".md") {
 			out = append(out, rel)
 		}
 		return nil

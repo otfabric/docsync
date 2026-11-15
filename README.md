@@ -17,13 +17,13 @@ load the checked module's own dependencies.
 ## Run it
 
 ```sh
-go run github.com/otfabric/docsync@v0.2.0 check .
+go run github.com/otfabric/docsync@v0.4.0 check .
 ```
 
 or install it:
 
 ```sh
-go install github.com/otfabric/docsync@v0.2.0
+go install github.com/otfabric/docsync@v0.4.0
 docsync check --format github .
 ```
 
@@ -37,11 +37,14 @@ docsync check --format github .
 
 | Flag of `check` | Meaning |
 |---|---|
-| `--format text\|github\|json\|markdown` | `text` (default): `file:line: RULE: message`; `github`: workflow annotations; `json`: the findings as an array; `markdown`: a table for `$GITHUB_STEP_SUMMARY` |
+| `--format text\|github\|json\|markdown` | `text` (default): `file:line: RULE: message`; `github`: workflow annotations; `json`: the findings as an array ([docs/json-output.md](docs/json-output.md)); `markdown`: a table for `$GITHUB_STEP_SUMMARY` |
 | `--rules DS-API,DS-REF` | Report only these rules |
 
-Exit codes: 0 when the documents agree with the code, 1 with findings; see
-[docs/exitcodes.md](docs/exitcodes.md).
+Exit codes: 0 when the documents agree with the code, 1 with findings, 10
+when a file of the checked directory cannot be read or is refused; see
+[docs/exitcodes.md](docs/exitcodes.md). docsync reads only regular files
+inside the checked directory, within size limits, and `docsync api` changes
+only `docs/api/` ([SECURITY.md](SECURITY.md)).
 
 ## Rules
 
@@ -143,9 +146,12 @@ already requires.
 
 ## In CI
 
-The shared workflows of [otfabric/.github](https://github.com/otfabric/.github)
-run docsync: as a job of `go-ci.yml`, and as `docs-check.yml` for pushes and
-pull requests that change Markdown only. In another repository:
+Every OT Fabric repository runs docsync in its pull-request workflow, through
+the reusable `docs-check.yml` workflow of
+[otfabric/.github](https://github.com/otfabric/.github), which installs the
+docsync release its `docsync-version` input names. docsync itself runs its
+own code at the commit under review (`.github/workflows/docs.yml`). In
+another repository:
 
 ```yaml
 - uses: actions/checkout@v7
@@ -154,16 +160,28 @@ pull requests that change Markdown only. In another repository:
 - uses: actions/setup-go@v7
   with:
     go-version-file: go.mod
-- run: go run github.com/otfabric/docsync@v0.2.0 check --format github .
+- run: go run github.com/otfabric/docsync@v0.4.0 check --format github .
 ```
 
 ## Contributing
 
 `make check` runs everything CI runs. The fixture modules in `testdata/` hold
 one example of every finding; `make update-golden` rewrites the expected
-output after an intended change. See [SECURITY.md](SECURITY.md) for
+output after an intended change. `make e2e` builds the binary and runs it on
+the fixtures, and `make fuzz FUZZTIME=10s` runs every fuzz target. See [SECURITY.md](SECURITY.md) for
 reporting a vulnerability and [RELEASE.md](RELEASE.md) for the history.
 
 ## License
 
 MIT, see [LICENSE](LICENSE).
+
+## When CI runs
+
+| Event | Workflow | What runs |
+|---|---|---|
+| Pull request | `pr.yml` | `policy.yml` (otfabric-policy) always; `ci.yml`, `docs.yml` unless every changed file is documentation; then `OT Fabric Required Checks` |
+| Push to a branch | none | nothing; dispatch `ci.yml`, `docs.yml` to test a branch without a pull request |
+| Push to `main` | `policy.yml` | the light checks; the merged commit was tested as the pull request's merge commit |
+| Release | `release.yml` | the release workflow tests the release commit again |
+
+Documentation means an added or modified `*.md` file outside `.github/`, `testdata/` and `vendor/`, other than `AGENTS.md` and `CLAUDE.md`. A deleted or renamed document, or any other file, runs everything. `OT Fabric Required Checks` fails unless every job that applies succeeded; its summary lists them.

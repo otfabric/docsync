@@ -1,7 +1,7 @@
 # docsync Makefile (from the otfabric/engineering CLI template, policy 1.3).
 # Local binaries go in root bin/, cross-compiled packaging in root release/ (GO-013).
 .DEFAULT_GOAL := help
-.PHONY: docs-check help check build build-all install fmt fmt-check vet lint lint-ci vuln test coverage coverage-pkg-check e2e clean
+.PHONY: docs-check help check build build-all install fmt fmt-check vet lint lint-ci vuln test coverage coverage-pkg-check e2e fuzz clean
 
 export GOWORK := off
 BIN := docsync
@@ -14,6 +14,7 @@ LDFLAGS := -s -w -X main.version=$(VERSION)
 COVER_MIN := 85
 # Per-package floor (TEST-012).
 COVER_PKG_MIN := 70
+FUZZTIME ?= 10s
 
 help: ## This help
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_-]+:.*?## / {printf "\033[36m%-14s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -54,6 +55,11 @@ coverage: ## Coverage over ./... with COVER_MIN gate
 	awk -v t="$$total" -v m="$(COVER_MIN)" 'BEGIN { if (t+0 < m+0) { printf "coverage %.1f%% < %s%%\n", t, m; exit 1 } else printf "coverage %.1f%%\n", t }'
 e2e: ## Build the binary and run the e2e suite against it
 	@go test -count=1 ./e2e/...
+fuzz: ## Run every fuzz target for FUZZTIME (found with go test -list, as CI does)
+	@for pkg in $$(go list ./...); do \
+		for t in $$(go test -list '^Fuzz' $$pkg | grep '^Fuzz'); do \
+			echo "$$pkg $$t"; go test -run '^$$' -fuzz "^$$t\$$" -fuzztime $(FUZZTIME) $$pkg || exit 1; \
+		done; done
 clean: ## Remove build output
 	@rm -rf $(BIN_DIR) $(RELEASE_DIR) coverage.out
 docs-check: ## docsync on its own documents

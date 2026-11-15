@@ -10,11 +10,11 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"path"
-	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/otfabric/docsync/internal/repofs"
 )
 
 // File is where the configuration lives, relative to the checked directory.
@@ -73,9 +73,10 @@ var (
 	DefaultCLIDocs     = []string{"README.md", "docs/**"}
 )
 
-// Load reads the configuration of dir. A missing file is the zero Config.
-func Load(dir string) (*Config, error) {
-	data, err := os.ReadFile(filepath.Join(dir, File))
+// Load reads the configuration of the checked directory. A missing file is
+// the zero Config.
+func Load(fsys *repofs.FS) (*Config, error) {
+	data, err := fsys.ReadFile(File)
 	if errors.Is(err, fs.ErrNotExist) {
 		return &Config{}, nil
 	}
