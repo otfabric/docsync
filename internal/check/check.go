@@ -6,6 +6,7 @@ package check
 
 import (
 	"regexp"
+	"strings"
 
 	"github.com/otfabric/docsync/internal/config"
 	"github.com/otfabric/docsync/internal/finding"
@@ -29,7 +30,10 @@ type Repo struct {
 	// Generated are the files docsync api wrote (docs/api/**): the API
 	// reference for DS-API, compared by DS-GEN, read by no other check.
 	Generated []*markdown.Doc
-	Git       *gitinfo.Repo
+	// Stopped are the findings of Run that say a check could not run
+	// (Stops), after the configuration's ignore entries.
+	Stopped []finding.Finding
+	Git     *gitinfo.Repo
 	// GoBin is the go command (tests replace it).
 	GoBin string
 
@@ -82,17 +86,38 @@ type Check func(*Repo) []finding.Finding
 var All = []Check{API, Gen, Refs, Errors, Code, Versions, Security, Release, CLI}
 
 // Run runs every check and drops the findings the configuration accepts.
+// The findings that say a check could not run (Stops) are also kept in
+// r.Stopped.
 func Run(r *Repo) []finding.Finding {
 	var out []finding.Finding
 	for _, c := range All {
 		for _, f := range c(r) {
 			if !r.Config.Ignored(f.Rule, f.Subject) {
 				out = append(out, f)
+				if len(Stops(f)) > 0 {
+					r.Stopped = append(r.Stopped, f)
+				}
 			}
 		}
 	}
 	finding.Sort(out)
+	finding.Sort(r.Stopped)
 	return out
+}
+
+// Stops returns the rules a finding says could not run: the DS-CONF finding
+// of the type check stops DS-CODE, the one of a CLI's manifest test stops
+// DS-CMD, DS-FLAG and DS-EX. Any other finding stops none.
+func Stops(f finding.Finding) []string {
+	switch {
+	case f.Rule != "DS-CONF":
+		return nil
+	case f.Subject == "typecheck":
+		return []string{"DS-CODE"}
+	case strings.HasSuffix(f.Subject, " manifest"):
+		return []string{"DS-CMD", "DS-FLAG", "DS-EX"}
+	}
+	return nil
 }
 
 // stdMethods are interface methods whose implementations need no reference

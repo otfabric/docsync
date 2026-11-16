@@ -106,10 +106,17 @@ func TestNoGoModule(t *testing.T) {
 }
 
 func TestUsage(t *testing.T) {
-	for _, args := range [][]string{nil, {"bogus"}, {"check", "--format", "xml"}, {"check", "a", "b"}, {"check", "--nope"}, {"template", "a", "b"}} {
+	for _, args := range [][]string{nil, {"bogus"}, {"check", "--format", "xml"}, {"check", "a", "b"}, {"check", "--nope"}, {"template", "a", "b"},
+		// An unknown rule would report nothing and pass.
+		{"check", "--rules", "DS-NOPE", "../../testdata/lib"}, {"check", "--rules", "DS-API,ds-ref", "../../testdata/lib"},
+		{"check", "--rules", " , ", "../../testdata/lib"}} {
 		if code, _, _ := run(t, args...); code != ExitUsage {
 			t.Errorf("%v: exit %d, want %d", args, code, ExitUsage)
 		}
+	}
+	if code, out, errOut := run(t, "check", "--rules", "DS-API, DS-SEC,", "../../testdata/lib"); code != ExitFindings ||
+		!strings.Contains(out, "DS-API") || !strings.Contains(out, "DS-SEC") || strings.Contains(out, "DS-REF") {
+		t.Errorf("--rules DS-API, DS-SEC: exit %d\n%s%s", code, out, errOut)
 	}
 	for _, args := range [][]string{{"help"}, {"--help"}, {"version"}, {"rules"}} {
 		if code, out, _ := run(t, args...); code != ExitOK || out == "" {

@@ -559,6 +559,11 @@ func exitCodes(r *Repo, c config.CLI) []finding.Finding {
 	consts := map[int]exitConst{}
 	if c.ExitCodes != "" {
 		consts = exitConsts(r.FS, c.ExitCodes)
+		if len(consts) == 0 {
+			// A mistyped directory would turn the code side of DS-EXIT off.
+			out = append(out, finding.Finding{Rule: "DS-CONF", File: config.File, Subject: c.Name + " exit_codes",
+				Message: fmt.Sprintf("exit_codes %q of %s declares no Exit… integer constant: name the package directory that does, or remove the key", c.ExitCodes, c.Name)})
+		}
 	}
 	for _, code := range sortedInts(consts) {
 		kind := consts[code].kind
@@ -725,7 +730,9 @@ func jsonFields(r *Repo, c config.CLI) []finding.Finding {
 	}
 	fields := jsonTags(r.FS, c.JSONTypes)
 	if len(fields) == 0 {
-		return nil
+		// A mistyped directory would turn DS-JSON off.
+		return []finding.Finding{{Rule: "DS-CONF", File: config.File, Subject: c.Name + " json_types",
+			Message: fmt.Sprintf("json_types %q of %s declares no struct field with a json tag: name the package directory that does, or remove the key", c.JSONTypes, c.Name)}}
 	}
 	d := r.Doc(c.JSONDocPath())
 	if d == nil {

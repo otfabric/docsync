@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime/debug"
 	"strings"
 	"unicode/utf8"
 
@@ -60,8 +61,17 @@ invalid and 10 on an internal error.
 `
 
 // Run runs docsync with args (without the program name) and returns the exit
-// code.
-func Run(args []string, stdout, stderr io.Writer) int {
+// code. An unexpected internal error exits 10 with its stack on stderr.
+func Run(args []string, stdout, stderr io.Writer) (code int) {
+	defer func() {
+		if v := recover(); v != nil {
+			fail(stderr, fmt.Errorf("internal error: %v", v))
+			for _, l := range strings.Split(strings.TrimSpace(string(debug.Stack())), "\n") {
+				_, _ = fmt.Fprintln(stderr, "\t"+clean(strings.TrimSpace(l), false))
+			}
+			code = ExitInternal
+		}
+	}()
 	if len(args) == 0 {
 		_, _ = fmt.Fprint(stderr, usage)
 		return ExitUsage
@@ -117,6 +127,27 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintf(stderr, "docsync check: unknown format %q\n", *format)
 		return ExitUsage
 	}
+	var want map[string]bool
+	if *rules != "" {
+		// An unknown rule is a usage error: a mistyped one would report
+		// nothing and pass.
+		want = map[string]bool{}
+		for _, r := range strings.Split(*rules, ",") {
+			id := strings.TrimSpace(r)
+			if id == "" {
+				continue
+			}
+			if !knownRule(id) {
+				_, _ = fmt.Fprintf(stderr, "docsync check: unknown rule %q (docsync rules lists them)\n", id)
+				return ExitUsage
+			}
+			want[id] = true
+		}
+		if len(want) == 0 {
+			_, _ = fmt.Fprintln(stderr, "docsync check: --rules names no rule")
+			return ExitUsage
+		}
+	}
 	dir := "."
 	if fs.NArg() == 1 {
 		dir = fs.Arg(0)
@@ -127,11 +158,7 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 	}
 	defer func() { _ = repo.FS.Close() }()
 	fsAll := check.Run(repo)
-	if *rules != "" {
-		want := map[string]bool{}
-		for _, r := range strings.Split(*rules, ",") {
-			want[strings.TrimSpace(r)] = true
-		}
+	if want != nil {
 		kept := fsAll[:0]
 		for _, f := range fsAll {
 			if want[f.Rule] {
@@ -147,10 +174,23 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 	if refused(stderr, repo) {
 		return ExitInternal
 	}
+	if stopped(stderr, repo, *rules) {
+		return ExitInternal
+	}
 	if len(fsAll) > 0 {
 		return ExitFindings
 	}
 	return ExitOK
+}
+
+// knownRule reports whether id is a rule docsync has (docsync rules).
+func knownRule(id string) bool {
+	for _, r := range finding.Rules {
+		if r.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 // loadFailed reports an error of Load and returns its exit code: 3 for a
@@ -173,6 +213,28 @@ func refused(stderr io.Writer, repo *check.Repo) bool {
 		fail(stderr, fmt.Errorf("a check could not run: %w", e))
 	}
 	return len(repo.FS.Refused()) > 0
+}
+
+// stopped reports the checks that could not run (check.Stops) for a rule
+// the run reports: the run fails, as it does for a refused file. An ignore
+// entry for the DS-CONF finding, or --rules without the rules it stops,
+// lets the run go on.
+func stopped(stderr io.Writer, repo *check.Repo, rules string) bool {
+	want := map[string]bool{}
+	for _, r := range strings.Split(rules, ",") {
+		want[strings.TrimSpace(r)] = true
+	}
+	stop := false
+	for _, f := range repo.Stopped {
+		for _, rule := range check.Stops(f) {
+			if rules == "" || want[rule] || want[f.Rule] {
+				fail(stderr, fmt.Errorf("%s could not run: %s: %s", rule, f.Subject, f.Message))
+				stop = true
+				break
+			}
+		}
+	}
+	return stop
 }
 
 // fail prints an error on one line, with control characters made visible.
@@ -298,7 +360,9 @@ func load(fsys *repofs.FS) (*check.Repo, error) {
 		if err != nil {
 			return nil, err
 		}
-		if apidoc.IsGenerated(d.Text()) {
+		// The marker counts only where docsync api writes: anywhere else the
+		// file is an ordinary document.
+		if strings.HasPrefix(p, apidoc.Dir+"/") && apidoc.IsGenerated(d.Text()) {
 			r.Generated = append(r.Generated, d)
 			continue
 		}

@@ -62,8 +62,9 @@ error that names it, quoted and escaped. It is never skipped.
 - Every file it replaces or removes must be a regular file in `docs/api/`.
   It writes a new file and renames it over the old one, and removes a file
   by its own name, so it follows no link.
-- A file outside `docs/api/` that starts with the generated marker is
-  refused, not removed.
+- Only a file in `docs/api/` that starts with the generated marker counts
+  as generated; anywhere else it is an ordinary document, which
+  `docsync api` leaves alone.
 
 It checks every path before the first change. When one fails, it changes
 nothing and exits 10, naming the path.
