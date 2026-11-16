@@ -17,13 +17,13 @@ load the checked module's own dependencies.
 ## Run it
 
 ```sh
-go run github.com/otfabric/docsync@v0.4.0 check .
+go run github.com/otfabric/docsync@v0.5.0 check .
 ```
 
 or install it:
 
 ```sh
-go install github.com/otfabric/docsync@v0.4.0
+go install github.com/otfabric/docsync@v0.5.0
 docsync check --format github .
 ```
 
@@ -38,10 +38,11 @@ docsync check --format github .
 | Flag of `check` | Meaning |
 |---|---|
 | `--format text\|github\|json\|markdown` | `text` (default): `file:line: RULE: message`; `github`: workflow annotations; `json`: the findings as an array ([docs/json-output.md](docs/json-output.md)); `markdown`: a table for `$GITHUB_STEP_SUMMARY` |
-| `--rules DS-API,DS-REF` | Report only these rules |
+| `--rules DS-API,DS-REF` | Report only these rules; an unknown rule is a usage error (exit 2) |
 
 Exit codes: 0 when the documents agree with the code, 1 with findings, 10
-when a file of the checked directory cannot be read or is refused; see
+when a file of the checked directory cannot be read or is refused, or a
+check cannot run (its `go` command fails before it checks anything); see
 [docs/exitcodes.md](docs/exitcodes.md). docsync reads only regular files
 inside the checked directory, within size limits, and `docsync api` changes
 only `docs/api/` ([SECURITY.md](SECURITY.md)).
@@ -54,7 +55,7 @@ only `docs/api/` ([SECURITY.md](SECURITY.md)).
 | DS-GEN | The generated API reference (`docs/api/`, written by `docsync api`) is what `docsync api` writes now: a changed doc comment, signature or package makes it stale. Only checked in a module that has one. |
 | DS-REF | What the documents name exists: `pkg.Name` and `T.Method` in inline code, `ErrX` in inline code and `go` blocks, and `pkg.ErrX` of a module package in prose (an unqualified ErrX in prose or a table is as often a protocol name, such as IEC 61850 ErrTerm). The test functions of `_test.go` files (`Test…`, `Fuzz…`, `Benchmark…`, `Example…`) count, qualified or not, and so does a package of a dependency the module imports under the same name (go-ocpp's `client` in a CLI with its own `cmd/client`; looked up with `go list`, accepted when it cannot be found). Placeholders (`ErrXxx`, `MyStruct`) and notation that only looks like Go (`LN.DO`, `A.B.C` paths) are skipped. |
 | DS-ERR | Every exported error sentinel (`ErrX`, `errors.New`) and error type (a type with `Error() string`) of a public package is in `ERRORS.md`. |
-| DS-CODE | Every `go` code block parses and type-checks against the module: a whole file, declarations, statements (wrapped in a function), or both. A package name several module packages share means the one declaring what the block selects, a public one before an `internal/` one; when none declares it, the dependency package of that name the module imports. Locals the example does not declare (`ctx`, `client`, `err`) and elided values (`...`) are accepted; what is wrong with the module's API is not. A `var ( … )` block that only lists names is checked for the names. A block that is not Go should say so (`text`). |
+| DS-CODE | Every `go` code block parses and type-checks against the module: a whole file, declarations, statements (wrapped in a function), or both. A package name several module packages share means the one declaring what the block selects, a public one before an `internal/` one; when none declares it, the dependency package of that name the module imports. Locals the example does not declare (`ctx`, `client`, `err`) and elided values (`...`) are accepted; what is wrong with the module's API is not. A `var ( … )` block that only lists names is checked for the names. A block that imports a package `go list` cannot build (a module the checked one does not require, with the module proxy out of reach) is reported with that package, not passed unchecked; a cgo block is skipped. A block that is not Go should say so (`text`). |
 | DS-SIG | A block of declarations without bodies (an API listing: `func (c *Client) Read(...) ...`, `type Config struct { ... }`, or method specifications) matches the code: the function, method, field or type exists, with the same parameter and result types. A parameter written by name only (`Close(ctx) error`) matches any type. |
 | DS-VER | "Requires Go 1.26", "Go 1.26+" and "Go 1.26 or later" match the `go` (or `toolchain`) directive; "built on go-x v1.2.3", "requires go-x v1.2.3", "go-x v1.2.3+" match the version `go.mod` requires of that OT Fabric module. The keyword must stand right before the module's name: "Fixed in go-x v1.0.1" or a "requires" elsewhere on the line is not a claim. |
 | DS-SEC | OT Fabric addresses are `@otfabric.io`; `SECURITY.md` names `security@otfabric.io` and it has a supported-versions table (`| Version | Supported |`), and the table supports the minor of the latest release tag (a row starting with `X.Y.x`, such as `0.8.x (latest: v0.8.2)`; an open-ended row, such as `0.6.6 and later`, `0.6+` or `>= 0.6`, that includes the latest tag; or a "Latest release" row). |
@@ -110,9 +111,9 @@ Everything is optional. `.otfabric/docsync.json`:
 | `skip_dirs` | Globs of package directories that need no reference entries | `internal/**`, `**/internal/**`, `cmd/**`, `examples/**`, `example/**`, `e2e/**`, `interop/**`, `conformance/**`, `tools/**`, `scripts/**`, `test/**`, `tests/**`, `testdata/**` |
 | `clis[].name` | The command, as users type it | |
 | `clis[].manifest` | The package holding `TestDocsyncManifest` | |
-| `clis[].exit_codes` | The directory of the `Exit…` constants | DS-EXIT then checks the table only |
+| `clis[].exit_codes` | The directory of the `Exit…` constants; one that declares none is a DS-CONF finding | DS-EXIT then checks the table only |
 | `clis[].exit_doc` | The exit-code table | `docs/exitcodes.md` |
-| `clis[].json_types` | The directory of the JSON output types | DS-JSON off |
+| `clis[].json_types` | The directory of the JSON output types; one with no `json` tag is a DS-CONF finding | DS-JSON off |
 | `clis[].json_doc` | The JSON output reference | `docs/json-output.md` |
 | `clis[].docs` | Globs of the CLI's documents | `README.md`, `docs/**` |
 | `ignore` | Accepted findings: `rule` (or `*`), `subject` (a glob of the finding's subject) and a `reason`, which is required | |
@@ -126,7 +127,7 @@ directories, and `dir/**` matches `dir` and everything below it.
 docsync api .
 ```
 
-writes one Markdown file per public package to `docs/api/` (the package's import path, constants, variables, functions, types and methods, each with its declaration and doc comment, like `go doc`) and an index, `docs/api/README.md`. The doc comments are the documentation; hand-written guides (`API.md`) explain how the pieces fit. Every file starts with `<!-- Code generated by docsync api. DO NOT EDIT. -->`. Run it again after changing the API: it rewrites what changed and removes the files of packages that are gone, and DS-GEN fails until it has run.
+writes one Markdown file per public package to `docs/api/` (the package's import path, constants, variables, functions, types and methods, each with its declaration and doc comment, like `go doc`) and an index, `docs/api/README.md`. The doc comments are the documentation; hand-written guides (`API.md`) explain how the pieces fit. Every file starts with `<!-- Code generated by docsync api. DO NOT EDIT. -->`; only a file in `docs/api/` that starts with it counts as generated, and a document elsewhere that does is checked like any other. Run it again after changing the API: it rewrites what changed and removes the files of packages that are gone, and DS-GEN fails until it has run.
 
 The reference covers the packages DS-API covers (not `internal/`, `cmd/`, examples, tests, generated files) on linux, darwin, windows and freebsd: a name declared for several platforms appears once, the first in that order. No other check reads the generated files: they come from the code.
 
@@ -160,7 +161,7 @@ another repository:
 - uses: actions/setup-go@v7
   with:
     go-version-file: go.mod
-- run: go run github.com/otfabric/docsync@v0.4.0 check --format github .
+- run: go run github.com/otfabric/docsync@v0.5.0 check --format github .
 ```
 
 ## Contributing

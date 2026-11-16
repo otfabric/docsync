@@ -1,5 +1,24 @@
 # docsync Releases
 
+## v0.5.0
+
+**Date:** 2026-11-16
+**Previous release:** v0.4.0
+
+### Breaking
+
+- An `exit_codes` directory that declares no `Exit…` integer constant, or a `json_types` directory with no `json` tag, is a DS-CONF finding (exit 1, subject `<cli> exit_codes` or `<cli> json_types`) instead of a check that is off. A CLI whose configured directory is mistyped or has moved, or whose exit codes are not integer literals (`iota`), now gets it. Fix the path, remove the key (DS-EXIT then checks the table only, as before), or accept the finding with an `ignore` entry for its subject.
+- `--rules` with a rule docsync does not have (`docsync rules` lists them; case counts), or with no rule at all, exits 2 before it reads anything, instead of reporting nothing. A script or workflow that passes a misspelt rule now fails; correct the rule name.
+- DS-CODE reports a Go block that imports a package `go list` cannot build, naming the package, at the block's first line; such a block used to pass unchecked. A block that imports `unsafe` is checked too; a cgo block is still skipped. A repository whose documents import a module it does not require, or whose dependencies cannot be fetched (offline, `GOPROXY=off`, a fork or Dependabot run without `OTFABRIC_READ_TOKEN`), can now get this finding and exit 1 where it got 0. Make the module require it, mark a block that is not meant to compile as `text`, or accept the finding with an `ignore` entry for DS-CODE and its subject (`API.md:12`).
+- The generated marker counts only in `docs/api/`. A document elsewhere that starts with it is checked like any other document (in v0.4.0 only DS-GEN read it, and reported it as a package that is gone), and `docsync api` leaves it alone (v0.4.0 refused it with exit 10). A repository with such a document can now get findings for it; delete the marker line, or list the file in `exclude_docs`.
+- A check whose tool cannot run (`go list` for DS-CODE, the manifest test of a configured CLI for DS-CMD, DS-FLAG and DS-EX) exits 10 instead of 1, and standard error names the rule (`docsync: DS-CODE could not run: …`); with `--rules` naming only such a rule, the run used to pass with nothing checked. An unexpected internal error exits 10, with its stack on standard error, instead of the Go runtime's 2. In `docs-check.yml`, enforce mode failed such a run already; warn mode, which passes exit 1, now fails it, and a script that tells 1 from 10 sees the change. An `ignore` entry for that DS-CONF finding (subject `typecheck` or `<cli> manifest`), or `--rules` without the rules it stops and without DS-CONF, lets the run go on without it.
+
+### Fixed
+
+- The scratch module of the type check keeps the `replace ( … )` blocks of the checked `go.mod` and its `replace` lines that end in a comment, and it is removed when `go list` fails, as it is when it succeeds. `go list std` runs in the checked directory, with the toolchain that module selects.
+
+---
+
 ## v0.4.0
 
 **Date:** 2026-11-15

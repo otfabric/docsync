@@ -3,12 +3,69 @@
 package check
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/otfabric/docsync/internal/config"
 	"github.com/otfabric/docsync/internal/goapi"
+	"github.com/otfabric/docsync/internal/repofs"
 )
+
+// TestConfiguredDirsDeclareSomething: an exit_codes or json_types directory
+// that declares nothing (a mistyped path) is a DS-CONF finding, not a check
+// that is quietly off.
+func TestConfiguredDirsDeclareSomething(t *testing.T) {
+	dir := t.TempDir()
+	for rel, s := range map[string]string{
+		"internal/errs/errs.go":   "package errs\n\nconst ExitOK = 0\n",
+		"internal/out/out.go":     "package out\n\ntype R struct {\n\tA int `json:\"a\"`\n}\n",
+		"internal/empty/empty.go": "package empty\n",
+	} {
+		p := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(s), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fsys, err := repofs.Open(dir, repofs.Default)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = fsys.Close() }()
+	r := &Repo{Dir: dir, FS: fsys}
+	both := []string{"x exit_codes", "x json_types"}
+	for _, tc := range []struct {
+		c    config.CLI
+		want []string
+	}{
+		{config.CLI{Name: "x", ExitCodes: "internal/errs", JSONTypes: "internal/out"}, nil},
+		{config.CLI{Name: "x"}, nil},
+		{config.CLI{Name: "x", ExitCodes: "internal/empty", JSONTypes: "internal/empty"}, both},
+		{config.CLI{Name: "x", ExitCodes: "internal/nope", JSONTypes: "internal/nope"}, both},
+		{config.CLI{Name: "x", ExitCodes: "internal/out", JSONTypes: "internal/errs"}, both},
+	} {
+		var got []string
+		for _, f := range append(exitCodes(r, tc.c), jsonFields(r, tc.c)...) {
+			if f.Rule == "DS-CONF" {
+				if f.File != config.File || !strings.Contains(f.Message, "remove the key") {
+					t.Errorf("%+v: %+v", tc.c, f)
+				}
+				got = append(got, f.Subject)
+			}
+		}
+		if !slices.Equal(got, tc.want) {
+			t.Errorf("%+v: DS-CONF subjects %q, want %q", tc.c, got, tc.want)
+		}
+	}
+	if len(fsys.Refused()) != 0 {
+		t.Errorf("refused: %v", fsys.Refused())
+	}
+}
 
 func TestShellWords(t *testing.T) {
 	for _, tc := range []struct {

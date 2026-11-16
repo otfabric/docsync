@@ -24,8 +24,10 @@ as `\xNN` or `\uNNNN`. A byte that is not UTF-8 becomes U+FFFD.
 The exit code is the one of every format ([exitcodes.md](exitcodes.md)): 0
 with `[]`, 1 with findings. When docsync stops before it checks anything
 (exit 2, 3, or 10 while it reads the module), standard output is empty. When a
-check could not run because docsync refused a file (exit 10 after the
-checks), the array holds the findings of the checks that ran.
+check could not run because docsync refused a file or because its tool
+could not run (exit 10 after the checks), the array holds the findings of
+the checks that ran, the DS-CONF finding that says which tool included
+unless `--rules` leaves it out.
 
 From the CLI fixture (`docsync check --format json --rules DS-EXIT testdata/cli`):
 

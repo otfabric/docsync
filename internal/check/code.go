@@ -328,6 +328,11 @@ func Code(r *Repo) []finding.Finding {
 	return out
 }
 
+func firstLine(s string) string {
+	s, _, _ = strings.Cut(strings.TrimSpace(s), "\n")
+	return s
+}
+
 func firstError(err error) string {
 	var el interface{ Unwrap() []error }
 	if errors.As(err, &el) && len(el.Unwrap()) > 0 {
@@ -346,14 +351,21 @@ type typeChecker struct {
 	r       *Repo
 	dir     string
 	exports map[string]string
-	std     map[string][]string
-	goVer   string
+	// failed are the packages go list could not build, with its error.
+	failed map[string]string
+	std    map[string][]string
+	goVer  string
 }
 
-func newTypeChecker(r *Repo, blocks []*goBlock) (*typeChecker, error) {
-	tc := &typeChecker{r: r, exports: map[string]string{}, goVer: r.Module.GoVersion}
-	var err error
-	if tc.std, err = stdPackages(r.GoBin); err != nil {
+func newTypeChecker(r *Repo, blocks []*goBlock) (_ *typeChecker, err error) {
+	tc := &typeChecker{r: r, exports: map[string]string{}, failed: map[string]string{}, goVer: r.Module.GoVersion}
+	// The scratch module goes when the type checker cannot be made.
+	defer func() {
+		if err != nil {
+			tc.close()
+		}
+	}()
+	if tc.std, err = stdPackages(r.GoBin, r.Dir); err != nil {
 		return nil, err
 	}
 	need := map[string]bool{}
@@ -377,25 +389,8 @@ func newTypeChecker(r *Repo, blocks []*goBlock) (*typeChecker, error) {
 	if err != nil {
 		return nil, err
 	}
-	var mod bytes.Buffer
-	fmt.Fprintf(&mod, "module docsync.check\n\ngo %s\n\nrequire %s v0.0.0\n\nreplace %s => %s\n", tc.goVer, r.Module.Path, r.Module.Path, abs)
-	// Keep the checked module's dependency versions.
-	for p, v := range r.Module.Requires {
-		fmt.Fprintf(&mod, "require %s %s\n", p, v)
-	}
-	for _, l := range strings.Split(string(gomod), "\n") {
-		if !strings.HasPrefix(l, "replace ") {
-			continue
-		}
-		// A local replacement is relative to the checked module.
-		if left, right, ok := strings.Cut(l, "=>"); ok {
-			if target := strings.TrimSpace(right); strings.HasPrefix(target, "./") || strings.HasPrefix(target, "../") {
-				l = left + "=> " + filepath.Join(abs, target)
-			}
-		}
-		mod.WriteString(l + "\n")
-	}
-	if err := os.WriteFile(filepath.Join(tc.dir, "go.mod"), mod.Bytes(), 0o600); err != nil {
+	mod := scratchGoMod(tc.goVer, r.Module.Path, abs, r.Module.Requires, gomod)
+	if err := os.WriteFile(filepath.Join(tc.dir, "go.mod"), mod, 0o600); err != nil {
 		return nil, err
 	}
 	switch sum, err := r.FS.ReadFile("go.sum"); {
@@ -428,11 +423,57 @@ func newTypeChecker(r *Repo, blocks []*goBlock) (*typeChecker, error) {
 		} else if err != nil {
 			return nil, err
 		}
-		if p.Export != "" && p.Error == nil {
+		switch {
+		case p.Error != nil:
+			tc.failed[p.ImportPath] = p.Error.Err
+		case p.Export != "":
 			tc.exports[p.ImportPath] = p.Export
 		}
 	}
 	return tc, nil
+}
+
+// scratchGoMod is the go.mod of the scratch module: it requires the checked
+// module (at abs) and its dependencies at their versions, and keeps its
+// replace directives, single or in a block, with a local target made
+// absolute and without comments.
+func scratchGoMod(goVer, modPath, abs string, requires map[string]string, gomod []byte) []byte {
+	var mod bytes.Buffer
+	fmt.Fprintf(&mod, "module docsync.check\n\ngo %s\n\nrequire %s v0.0.0\n\nreplace %s => %s\n", goVer, modPath, modPath, abs)
+	// Keep the checked module's dependency versions.
+	for _, p := range sortedKeys(requires) {
+		fmt.Fprintf(&mod, "require %s %s\n", p, requires[p])
+	}
+	block := false
+	for _, l := range strings.Split(string(gomod), "\n") {
+		if i := strings.Index(l, "//"); i >= 0 {
+			l = l[:i]
+		}
+		l = strings.TrimSpace(l)
+		switch {
+		case block && l == ")":
+			block = false
+			continue
+		case block:
+		case l == "replace (" || l == "replace(":
+			block = true
+			continue
+		case strings.HasPrefix(l, "replace "), strings.HasPrefix(l, "replace\t"):
+			l = strings.TrimSpace(l[len("replace"):])
+		default:
+			continue
+		}
+		left, right, ok := strings.Cut(l, "=>")
+		if !ok {
+			continue
+		}
+		// A local replacement is relative to the checked module.
+		if target := strings.TrimSpace(right); strings.HasPrefix(target, "./") || strings.HasPrefix(target, "../") {
+			right = " " + filepath.Join(abs, target)
+		}
+		fmt.Fprintf(&mod, "replace %s => %s\n", strings.TrimSpace(left), strings.TrimSpace(right))
+	}
+	return mod.Bytes()
 }
 
 func (tc *typeChecker) close() {
@@ -447,8 +488,13 @@ var stdPreferred = map[string]string{
 	"trace": "runtime/trace", "constraint": "go/build/constraint", "metrics": "runtime/metrics",
 }
 
-func stdPackages(goBin string) (map[string][]string, error) {
-	out, err := exec.Command(goBin, "list", "std").Output()
+// stdPackages lists the standard library with the go command the checked
+// module selects (its directory, its toolchain line).
+func stdPackages(goBin, dir string) (map[string][]string, error) {
+	cmd := exec.Command(goBin, "list", "std")
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GOWORK=off")
+	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("go list std: %w", err)
 	}
@@ -568,10 +614,21 @@ func isInternal(importPath string) bool {
 var ignoredErrRE = regexp.MustCompile(`declared and not used|imported and not used|" imported as \w+ and not used|missing return|missing function body|is not used|defined and not used|no new variables on left side|redeclared in this block|other declaration of|must have no arguments and no return values|func init must have no|cannot use _ as value`)
 
 func (tc *typeChecker) check(g *goBlock) []finding.Finding {
-	for _, p := range g.imports {
-		if tc.exports[p] == "" {
-			return nil // a package go list could not build (not a dependency of the module)
+	for _, name := range sortedKeys(g.imports) {
+		p := g.imports[name]
+		switch {
+		case p == "unsafe" || tc.exports[p] != "":
+			continue
+		case p == "C":
+			return nil // cgo: go/types cannot check it without the cgo tool
 		}
+		// A block that cannot be type-checked is not reported as correct.
+		why := "go list built no export data for it"
+		if e := tc.failed[p]; e != "" {
+			why = firstLine(e)
+		}
+		return []finding.Finding{{Rule: "DS-CODE", File: g.doc.Path, Line: g.blk.Start, Subject: fmt.Sprintf("%s:%d", g.doc.Path, g.blk.Start),
+			Message: fmt.Sprintf("Go block cannot be type-checked: it imports %s: %s (make the module require it, or mark a block that is not meant to compile with another language)", p, why)}}
 	}
 	// Add the inferred imports to the file.
 	var specs []ast.Spec
